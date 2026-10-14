@@ -46,7 +46,8 @@ const dailyTips: DailyTip[] = [
   { tag: '视频快门', title: '视频快门可从帧率的两倍附近开始', text: '24p 常从约 1/50 秒开始，30p 从约 1/60 秒开始，再根据动作清晰度和环境光线调整。', source: 'https://www.sony.com/electronics/support/articles/00268256', sourceLabel: 'Sony 视频基础' },
 ];
 
-export function InspirationApp({ user }: { user: { name: string; email: string } }) {
+export function InspirationApp({ user, transport, deployment = 'sites', onSignOut }: { user: { name: string; email: string }; transport?: typeof globalThis.fetch; deployment?: 'sites' | 'pages'; onSignOut?: () => void }) {
+  const fetch = useMemo(() => transport ?? globalThis.fetch.bind(globalThis), [transport]);
   const [view, setView] = useState<'library' | 'projects' | 'shortcut' | 'settings'>('library');
   const [items, setItems] = useState<Inspiration[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -81,7 +82,7 @@ export function InspirationApp({ user }: { user: { name: string; email: string }
     if (incoming) {
       setSharedText(incoming);
       setMessage('已从 iPhone 分享菜单带入链接，确认后即可收藏。');
-      window.history.replaceState({}, '', '/');
+      window.history.replaceState({}, '', window.location.pathname);
     }
     void loadData();
   }, []);
@@ -141,7 +142,7 @@ export function InspirationApp({ user }: { user: { name: string; email: string }
         const data = await inspirationResponse.json() as { inspirations: Inspiration[] };
         if (data.inspirations.length) {
           setItems(data.inspirations);
-        } else if (!localStorage.getItem('portrait-muse-starter-imported')) {
+        } else if (deployment !== 'pages' && !localStorage.getItem('portrait-muse-starter-imported')) {
           localStorage.setItem('portrait-muse-starter-imported', 'pending');
           const starterForm = new FormData();
           starterForm.set('sharedText', starterShareText);
@@ -167,7 +168,7 @@ export function InspirationApp({ user }: { user: { name: string; email: string }
         setUserTags(data.tags);
       }
     } catch {
-      // The empty state remains usable when the network is temporarily unavailable.
+      setMessage('无法连接资料库，请检查网络或云端空间配置。');
     }
   }
 
@@ -409,7 +410,7 @@ export function InspirationApp({ user }: { user: { name: string; email: string }
 
         {view === 'shortcut' && <ShortcutGuide />}
 
-        {view === 'settings' && <SettingsPage user={user} itemCount={items.length} projectCount={projects.length} onManageTags={() => setTagManagerOpen(true)} />}
+        {view === 'settings' && <SettingsPage user={user} itemCount={items.length} projectCount={projects.length} onManageTags={() => setTagManagerOpen(true)} deployment={deployment} onSignOut={onSignOut} />}
       </section>
 
       <nav className="mobile-nav" aria-label="移动端导航">
@@ -475,18 +476,20 @@ function InspirationCard({ item, onClick }: { item: Inspiration; onClick: () => 
   </button>;
 }
 
-function SettingsPage({ user, itemCount, projectCount, onManageTags }: {
+function SettingsPage({ user, itemCount, projectCount, onManageTags, deployment, onSignOut }: {
   user: { name: string; email: string };
   itemCount: number;
   projectCount: number;
   onManageTags: () => void;
+  deployment: 'sites' | 'pages';
+  onSignOut?: () => void;
 }) {
   return <section className="page-section settings-section">
     <p className="eyebrow">个人空间</p><h1>设置</h1>
     <div className="settings-grid">
       <article className="settings-card account-settings-card">
         <div className="settings-icon"><UserRound /></div><div><small>当前账号</small><h3>{user.name}</h3><p>{user.email}</p></div>
-        <a className="settings-action" href="/signout-with-chatgpt?return_to=%2F"><LogOut />退出登录</a>
+        {deployment === 'pages' ? <button className="settings-action" onClick={onSignOut}><LogOut />退出登录</button> : <a className="settings-action" href="/signout-with-chatgpt?return_to=%2F"><LogOut />退出登录</a>}
       </article>
       <article className="settings-card">
         <div className="settings-icon"><HardDrive /></div><div><small>私人资料库</small><h3>{itemCount} 条灵感 · {projectCount} 个项目</h3><p>图片保存在你的独立云端空间，不与其他账号混合。</p></div>
@@ -496,13 +499,13 @@ function SettingsPage({ user, itemCount, projectCount, onManageTags }: {
         <button className="settings-action" onClick={onManageTags}><Pencil />管理标签</button>
       </article>
       <article className="settings-card">
-        <div className="settings-icon"><ShieldCheck /></div><div><small>账号与隐私</small><h3>由 ChatGPT 安全登录</h3><p>本站不保存密码；账号身份与登录状态由登录服务管理。</p></div>
+        <div className="settings-icon"><ShieldCheck /></div><div><small>账号与隐私</small><h3>{deployment === 'pages' ? '独立邮箱账号' : '由 ChatGPT 安全登录'}</h3><p>{deployment === 'pages' ? '由云端身份服务验证账号，数据库与私有图片按账号隔离。' : '本站不保存密码；账号身份与登录状态由登录服务管理。'}</p></div>
       </article>
       <article className="settings-card">
-        <div className="settings-icon"><Cloud /></div><div><small>图片下载引擎</small><h3>XHS-Downloader 兼容接口</h3><p>优先调用独立下载服务；遇到链接过期或风控时，可在收藏详情中补充截图。</p></div>
+        <div className="settings-icon"><Cloud /></div><div><small>图片下载引擎</small><h3>{deployment === 'pages' ? '相册 / 截图上传' : 'XHS-Downloader 兼容接口'}</h3><p>{deployment === 'pages' ? 'Pages 不运行下载器。可保存链接并上传照片；XHS-Downloader 需另接服务。' : '优先调用独立下载服务；遇到链接过期或风控时，可在收藏详情中补充截图。'}</p></div>
       </article>
     </div>
-    <div className="settings-note"><LockKeyhole /><div><strong>关于中国大陆访问</strong><p>当前网址依赖 ChatGPT 登录与 chatgpt.site 网络，因此在部分大陆网络中可能无法连接。更换按钮或普通域名不能彻底解决，需要迁移到可在大陆访问的云服务并替换登录系统。</p></div></div>
+    <div className="settings-note"><LockKeyhole /><div><strong>{deployment === 'pages' ? '关于资料迁移' : '关于中国大陆访问'}</strong><p>{deployment === 'pages' ? '原站的账号和收藏不会自动转入新空间。GitHub Pages 与云端服务的可达性取决于当前网络。' : '当前网址依赖 ChatGPT 登录与 chatgpt.site 网络，因此在部分大陆网络中可能无法连接。更换按钮或普通域名不能彻底解决，需要迁移到可在大陆访问的云服务并替换登录系统。'}</p></div></div>
   </section>;
 }
 

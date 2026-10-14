@@ -36,7 +36,23 @@ npm run dev
 
 GitHub Pages 仅托管静态 HTML/CSS/JavaScript，不能直接运行 `app/api/`、Python 下载器、D1 或 ChatGPT 服务端登录。
 
-仓库保留原网站完整应用代码。Pages 前端的构建、数据连接与发布状态以实际部署为准，不把源码上传成功当作全功能迁移完成。收藏、图片、Cookie、密码、数据库导出与访问令牌不应提交到公开仓库。
+仓库保留原站代码，并增加 `pages/` 独立静态前端。`npm run build:pages` 生成 `dist-pages/`；GitHub Actions 自动构建并发布。
+
+迁移后的前端采用 Supabase 独立邮箱登录、PostgreSQL 与私有图片存储，保留跨设备同步；不使用浏览器本地收藏冒充云端存储。未配置后端时，页面显示“云端空间尚未连接”，不会假装导入成功。新后端尚需实际初始化与端到端验证。
+
+配置步骤：
+
+1. 在新 Supabase 项目的 SQL Editor 执行 `supabase/schema.sql`。它创建五张业务表、逐用户 RLS 策略和私有 `portrait-images` 存储桶。
+2. 在 Auth URL Configuration 中，将 Site URL 和允许的重定向地址设为 `https://59rion.github.io/portrait-muse/`。
+3. 在 GitHub 仓库 Settings → Secrets and variables → Actions → Variables 设置 `VITE_SUPABASE_URL` 和 `VITE_SUPABASE_ANON_KEY`。这里只使用公开 publishable / anon key，绝不填写 secret / service_role。
+4. 在 Settings → Pages 中选择 GitHub Actions。重新运行 Publish GitHub Pages。
+5. 注册测试账号并验证邮箱；检查图片上传、退出再登录和另一设备同步。再使用第二个账号确认无法访问第一个账号的记录或图片。
+
+单个浏览器也可在未连接页面输入公开配置进行验证；部署成默认配置后，其他设备无需重复输入。真实收藏保存在云端；浏览器仅保留该服务的登录会话。
+
+旧账号与 D1/R2 数据不会自动迁移到 Supabase。需要用户验证新身份后，将旧身份映射到新账号，再通过有权限的服务端迁移记录与图片。GitHub Pages 版目前只保存链接并支持上传照片，尚未连接 XHS-Downloader；不会从浏览器直接请求内网下载器。
+
+收藏、图片、Cookie、密码、数据库导出与访问令牌不应提交到公开仓库。
 
 本次迁移可用的本地源码基线是原站第 3 版提交 `ae8d6f6c16bdb776838d4d2c85420ac03ac7b5c4`。线上登记的第 4 版提交是 `47cf3cd1109276e5a4135b2a98309c44ca0a4358`；由于原源码 Git 服务当前无法连接，尚未完成两版比对，未覆盖线上第 4 版。
 
