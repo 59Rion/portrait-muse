@@ -25,6 +25,18 @@ export class Cloud {
     if (value) localStorage.setItem(`${sessionKey}:${this.config.url}`, JSON.stringify(value));
     else localStorage.removeItem(`${sessionKey}:${this.config.url}`);
   }
+  async resumeEmailConfirmation() {
+    const values = new URLSearchParams(location.hash.slice(1));
+    const accessToken = values.get('access_token');
+    const refreshToken = values.get('refresh_token');
+    if (!accessToken || !refreshToken) return;
+    try {
+      const response = await fetch(`${this.config.url}/auth/v1/user`, { headers: { apikey: this.config.key, Authorization: `Bearer ${accessToken}` } });
+      if (!response.ok) throw new Error('邮箱验证已返回，请重新登录。');
+      const user = await response.json() as Session['user'];
+      this.setSession({ access_token: accessToken, refresh_token: refreshToken, expires_at: Math.floor(Date.now() / 1000) + Number(values.get('expires_in') || 3600), user });
+    } finally { history.replaceState({}, '', location.pathname + location.search); }
+  }
   async auth(path: string, body?: unknown): Promise<Row> {
     const response = await fetch(`${this.config.url}/auth/v1/${path}`, { method: body ? 'POST' : 'GET', headers: { apikey: this.config.key, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
     const data = await response.json() as Row;

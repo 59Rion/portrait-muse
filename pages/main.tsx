@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Aperture, Cloud, LockKeyhole } from 'lucide-react';
 import { InspirationApp } from '@/app/inspiration-app';
 import { Cloud as CloudClient, validateConfig, type CloudConfig } from './cloud';
@@ -27,6 +27,10 @@ function App() {
   const [signup, setSignup] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  useEffect(() => {
+    if (!client) return;
+    void client.resumeEmailConfirmation().then(() => setSession(client.session)).catch(e => setError(e instanceof Error ? e.message : '请重新登录。'));
+  }, [client]);
 
   if (client && session) return <InspirationApp user={{ name: session.user.user_metadata?.name || session.user.email.split('@')[0], email: session.user.email }} deployment="pages" transport={client.transport} onSignOut={() => { void client.signOut().finally(() => { setSession(null); window.location.reload(); }); }} />;
 
