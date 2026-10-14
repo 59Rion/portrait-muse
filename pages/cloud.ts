@@ -40,7 +40,17 @@ export class Cloud {
   async auth(path: string, body?: unknown): Promise<Row> {
     const response = await fetch(`${this.config.url}/auth/v1/${path}`, { method: body ? 'POST' : 'GET', headers: { apikey: this.config.key, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
     const data = await response.json() as Row;
-    if (!response.ok) throw new Error(data.msg || data.error_description || data.message || '登录服务暂时不可用。');
+    if (!response.ok) {
+      const messages: Record<string, string> = {
+        invalid_credentials: '邮箱或密码不正确，请确认使用的是本站独立账号。',
+        email_not_confirmed: '请先在邮箱中完成验证，再返回登录。',
+        over_email_send_rate_limit: '验证邮件发送过于频繁，请稍后重试。',
+        email_address_not_authorized: '当前邮件服务暂不允许向此邮箱发送验证信，请联系站点管理员配置邮件服务。',
+        user_already_exists: '此邮箱已注册，请返回登录。',
+        weak_password: '密码强度不足，请使用更长的字母、数字和符号组合。',
+      };
+      throw new Error(messages[data.error_code || data.code] || data.msg || data.error_description || data.message || '登录服务暂时不可用。');
+    }
     if (data.access_token) this.setSession({ ...data, expires_at: data.expires_at || Math.floor(Date.now() / 1000) + data.expires_in } as Session);
     return data;
   }

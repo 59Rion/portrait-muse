@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+const { url, key } = JSON.parse(await readFile(new URL('../pages/deployment.json', import.meta.url), 'utf8'));
+assert.match(key, /^sb_publishable_/);
+const headers = { apikey: key };
+const settings = await fetch(`${url}/auth/v1/settings`, { headers });
+assert.equal(settings.status, 200, 'Auth must be reachable');
+const auth = await settings.json();
+assert.equal(auth.disable_signup, false, 'Registration must be enabled');
+const read = await fetch(`${url}/rest/v1/inspirations?select=id`, { headers });
+assert.ok([401, 403].includes(read.status), 'Signed-out clients must not read private records');
+const write = await fetch(`${url}/rest/v1/user_tags`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: '00000000-0000-4000-8000-000000000000', name: 'anonymous-denial-check' }) });
+assert.ok([401, 403].includes(write.status), 'Signed-out clients must not create private records');
+console.log(JSON.stringify({ auth: settings.status, signupEnabled: !auth.disable_signup, emailVerificationRequired: !auth.mailer_autoconfirm, anonymousRead: read.status, anonymousWrite: write.status, passed: true }));

@@ -5,13 +5,14 @@ import { InspirationApp } from '@/app/inspiration-app';
 import { Cloud as CloudClient, validateConfig, type CloudConfig } from './cloud';
 import '@/app/globals.css';
 import './pages.css';
+import defaultConfig from './deployment.json';
 
 const configKey = 'portrait-muse-cloud-config';
 function initialConfig(): CloudConfig | null {
   try {
     const configured = import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY
       ? { url: import.meta.env.VITE_SUPABASE_URL, key: import.meta.env.VITE_SUPABASE_ANON_KEY }
-      : JSON.parse(localStorage.getItem(configKey) || 'null');
+      : JSON.parse(localStorage.getItem(configKey) || 'null') || defaultConfig;
     return configured ? validateConfig(configured) : null;
   } catch { return null; }
 }
