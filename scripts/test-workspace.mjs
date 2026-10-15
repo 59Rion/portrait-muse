@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import ts from 'typescript';
+// Base UI buttons default to type=button; reference search must explicitly submit its form.
+const workspaceView = await readFile(new URL('../app/project-workspace.tsx', import.meta.url), 'utf8');
+assert.match(workspaceView, /<form className="studio-search"[^\n]*<Button type="submit"[^\n]*检索/);
 const compile = text => ts.transpileModule(text, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const uri = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`;
 const sharedUri = uri(compile(await readFile(new URL('../lib/shooting.ts', import.meta.url), 'utf8')));

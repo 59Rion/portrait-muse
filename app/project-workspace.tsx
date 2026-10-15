@@ -134,7 +134,7 @@ export function ProjectWorkspace({ projectId, transport, onBack, onChanged }: { 
       </article>}
       {tab === 'references' && <article className="studio-panel">
         <h2>本次拍摄的真实参考</h2><p className="studio-hint">只检索当前账号的标题、文字与标签。未分析图片，也不会自动读取链接中的正文。最多检索最近 500 条收藏，展示前 60 条。</p>
-        <form className="studio-search" onSubmit={e => { e.preventDefault(); void search(); }}><Input aria-label="参考关键词" placeholder="用空格分隔，例如：清冷 室内 自然光" value={query} onChange={e => setQuery(e.target.value)} /><Button disabled={busy}><Search />检索</Button></form>
+        <form className="studio-search" onSubmit={e => { e.preventDefault(); void search(); }}><Input aria-label="参考关键词" placeholder="用空格分隔，例如：清冷 室内 自然光" value={query} onChange={e => setQuery(e.target.value)} /><Button type="submit" disabled={busy}><Search />检索</Button></form>
         <h3>已关联 · {data.references.length}</h3>{data.references.length ? <div className="studio-ref-grid">{data.references.map(r => <ReferenceCard key={r.id} item={r} />)}</div> : <p className="studio-hint">还没有参考。可以从下方检索，也可以在灵感库中加入项目。</p>}
         {results.length > 0 && <><h3>文字检索结果（不是 AI 推荐）</h3><div className="studio-ref-grid">{results.map(r => <ReferenceCard key={r.id} item={r} selected={checkedIds.includes(r.id)} onToggle={() => setCheckedIds(ids => ids.includes(r.id) ? ids.filter(id => id !== r.id) : [...ids, r.id].slice(0, 30))} />)}</div><Button disabled={!checkedIds.length || busy} onClick={() => setConfirmation({ kind: 'references', ids: [...checkedIds] })}><Plus />预览加入项目 · {checkedIds.length}</Button></>}
       </article>}
