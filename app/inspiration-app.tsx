@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { ProjectWorkspace } from '@/app/project-workspace';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
@@ -46,7 +47,7 @@ const dailyTips: DailyTip[] = [
   { tag: '视频快门', title: '视频快门可从帧率的两倍附近开始', text: '24p 常从约 1/50 秒开始，30p 从约 1/60 秒开始，再根据动作清晰度和环境光线调整。', source: 'https://www.sony.com/electronics/support/articles/00268256', sourceLabel: 'Sony 视频基础' },
 ];
 
-export function InspirationApp({ user, transport, deployment = 'sites', onSignOut }: { user: { name: string; email: string }; transport?: typeof globalThis.fetch; deployment?: 'sites' | 'pages'; onSignOut?: () => void }) {
+export function InspirationApp({ user, transport, deployment = 'sites', onSignOut, workspaceEnabled = false, downloadEnabled = false }: { user: { name: string; email: string }; transport?: typeof globalThis.fetch; deployment?: 'sites' | 'pages'; onSignOut?: () => void; workspaceEnabled?: boolean; downloadEnabled?: boolean }) {
   const fetch = useMemo(() => transport ?? globalThis.fetch.bind(globalThis), [transport]);
   const [view, setView] = useState<'library' | 'projects' | 'shortcut' | 'settings'>('library');
   const [items, setItems] = useState<Inspiration[]>([]);
@@ -60,6 +61,7 @@ export function InspirationApp({ user, transport, deployment = 'sites', onSignOu
   const [message, setMessage] = useState('');
   const [projectOpen, setProjectOpen] = useState(false);
   const [projectName, setProjectName] = useState('');
+  const [openProjectId, setOpenProjectId] = useState<string | null>(null);
   const [editingTags, setEditingTags] = useState(false);
   const [tagDraft, setTagDraft] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState('');
@@ -70,9 +72,13 @@ export function InspirationApp({ user, transport, deployment = 'sites', onSignOu
   const [renameDraft, setRenameDraft] = useState('');
   const [gallery, setGallery] = useState<InspirationImage[]>([]);
   const [uploadingImages, setUploadingImages] = useState(false);
+  const [downloadingImages, setDownloadingImages] = useState(false);
+  const [detailNotice, setDetailNotice] = useState('');
   const [tipOffset, setTipOffset] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const detailFileRef = useRef<HTMLInputElement>(null);
+  const selectedIdRef = useRef<string | null>(null);
+  selectedIdRef.current = selected?.id || null;
 
   const dailyTip = dailyTips[(Math.floor(Date.now() / 86400000) + tipOffset) % dailyTips.length];
 
@@ -173,6 +179,7 @@ export function InspirationApp({ user, transport, deployment = 'sites', onSignOu
   }
 
   useEffect(() => {
+    setDetailNotice('');
     if (!selected) { setGallery([]); return; }
     void fetch(`/api/inspirations/${selected.id}/images`)
       .then(async (response) => response.ok ? await response.json() as { images: InspirationImage[] } : { images: [] as InspirationImage[] })
@@ -192,15 +199,15 @@ export function InspirationApp({ user, transport, deployment = 'sites', onSignOu
     selectedFiles.forEach((file) => form.append('images', file));
     try {
       const response = await fetch('/api/inspirations', { method: 'POST', body: form });
-      const data = await response.json() as { inspiration?: Inspiration; error?: string };
+      const data = await response.json() as { inspiration?: Inspiration; error?: string; downloadWarning?: string; message?: string };
       if (!response.ok || !data.inspiration) throw new Error(data.error || '导入失败');
       setItems((current) => [data.inspiration!, ...current]);
       setSharedText('');
       setSelectedFiles([]);
       if (fileRef.current) fileRef.current.value = '';
-      setMessage(data.inspiration.status === 'needs_upload'
+      setMessage(data.downloadWarning || data.message || (data.inspiration.status === 'needs_upload'
         ? '链接已保存。平台未能取得图片，你可以稍后补充上传。'
-        : '已保存到你的私人灵感库。');
+        : '已保存到你的私人灵感库。'));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '导入失败，请改为上传图片。');
     } finally {
@@ -323,6 +330,26 @@ export function InspirationApp({ user, transport, deployment = 'sites', onSignOu
     setMessage('已加入拍摄项目。');
   }
 
+  async function downloadSelected() {
+    if (!selected || downloadingImages) return;
+    setDownloadingImages(true); setDetailNotice('正在启动下载后台。免费实例首次启动可能需要约一分钟，请勿重复点击。');
+    try {
+      const response = await fetch(`/api/inspirations/${selected.id}/download`, { method: 'POST' });
+      const data = await response.json() as { inspiration?: Inspiration; error?: string; message?: string };
+      if (!response.ok || !data.inspiration) throw new Error(data.error || '图片下载未完成。');
+      setItems(current => current.map(item => item.id === data.inspiration!.id ? data.inspiration! : item));
+      if (selectedIdRef.current !== data.inspiration.id) { setMessage(data.message || '图片下载已完成，可打开收藏查看。'); return; }
+      setSelected(data.inspiration);
+      const galleryResponse = await fetch(`/api/inspirations/${selected.id}/images`);
+      if (galleryResponse.ok) setGallery((await galleryResponse.json() as { images: InspirationImage[] }).images);
+      setDetailNotice(data.message || '已下载到当前账号的私有图库。');
+    } catch (error) {
+      const text = error instanceof Error ? error.message : '暂时下载失败，可稍后重试或补充截图。';
+      if (selectedIdRef.current === selected.id) setDetailNotice(text); else setMessage(text);
+    }
+    finally { setDownloadingImages(false); }
+  }
+
   const visibleItems = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return items.filter((item) => {
@@ -378,6 +405,7 @@ export function InspirationApp({ user, transport, deployment = 'sites', onSignOu
                   {importing ? <LoaderCircle className="animate-spin" /> : <WandSparkles />}{importing ? '正在整理' : '保存灵感'}
                 </Button>
               </div>
+              {importing && downloadEnabled && <p className="studio-hint">首次启动下载后台可能需要约一分钟，请不要重复提交。只支持图文笔记，受限时可补充截图。</p>}
               {message && <div className="inline-message"><Check /> {message}<button onClick={() => setMessage('')} aria-label="关闭提示"><X /></button></div>}
             </div>
           </section>
@@ -397,20 +425,21 @@ export function InspirationApp({ user, transport, deployment = 'sites', onSignOu
           </section>
         </>}
 
-        {view === 'projects' && <section className="page-section">
+        {view === 'projects' && openProjectId && deployment === 'pages' && workspaceEnabled && <ProjectWorkspace key={openProjectId} projectId={openProjectId} transport={fetch} onBack={() => setOpenProjectId(null)} onChanged={() => void loadData()} />}
+        {view === 'projects' && (!openProjectId || deployment !== 'pages' || !workspaceEnabled) && <section className="page-section">
           <div className="section-heading">
             <div><p className="eyebrow">从灵感到现场</p><h1>拍摄项目</h1><p>把妆造、场景、姿势和光线参考收拢到一次拍摄里。</p></div>
             <Button className="save-button" onClick={() => setProjectOpen(true)}><Plus />新建项目</Button>
           </div>
           {projects.length ? <div className="project-grid">{projects.map((project) => <article className="project-card" key={project.id}>
             <div className="project-icon"><Camera /></div><small>{project.item_count} 条参考</small><h3>{project.name}</h3>
-            <p>{project.description || '等待你加入第一组拍摄参考。'}</p><button>打开项目 <ChevronRight /></button>
+            <p>{project.description || '整理需求、参考与可执行拍摄方案。'}</p><button disabled={!workspaceEnabled || deployment !== 'pages'} onClick={() => setOpenProjectId(project.id)}>{workspaceEnabled ? '打开项目' : '工作台等待云端升级'} <ChevronRight /></button>
           </article>)}</div> : <div className="empty-state"><FolderHeart /><h3>为下一次拍摄建个项目</h3><p>例如“蓝调城市夜景”或“韩系咖啡馆写真”。</p><Button onClick={() => setProjectOpen(true)}><Plus />新建第一个项目</Button></div>}
         </section>}
 
         {view === 'shortcut' && <ShortcutGuide />}
 
-        {view === 'settings' && <SettingsPage user={user} itemCount={items.length} projectCount={projects.length} onManageTags={() => setTagManagerOpen(true)} deployment={deployment} onSignOut={onSignOut} />}
+        {view === 'settings' && <SettingsPage user={user} itemCount={items.length} projectCount={projects.length} onManageTags={() => setTagManagerOpen(true)} deployment={deployment} onSignOut={onSignOut} downloadEnabled={downloadEnabled} />}
       </section>
 
       <nav className="mobile-nav" aria-label="移动端导航">
@@ -435,6 +464,8 @@ export function InspirationApp({ user, transport, deployment = 'sites', onSignOu
           <Button className="detail-upload-button" variant="outline" onClick={() => detailFileRef.current?.click()} disabled={uploadingImages}>
             {uploadingImages ? <LoaderCircle className="animate-spin" /> : <ImagePlus />} {uploadingImages ? '正在上传' : '补充截图 / 相册图片'}
           </Button>
+          {deployment === 'pages' && downloadEnabled && selected.sourceUrl && <Button variant="outline" onClick={() => void downloadSelected()} disabled={downloadingImages || uploadingImages}>{downloadingImages ? <LoaderCircle className="animate-spin" /> : <Cloud />}{downloadingImages ? '正在下载，请稍候…' : '尝试下载原帖图片'}</Button>}
+          {detailNotice && <p role="status" className="studio-notice">{detailNotice}</p>}
           {projects.length > 0 && <select className="project-select" value={selectedProjectId} onChange={(event) => setSelectedProjectId(event.target.value)}><option value="">选择拍摄项目…</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select>}
           <DialogFooter>
             <Button variant="destructive" onClick={deleteSelected}><Trash2 />删除</Button>
@@ -476,13 +507,14 @@ function InspirationCard({ item, onClick }: { item: Inspiration; onClick: () => 
   </button>;
 }
 
-function SettingsPage({ user, itemCount, projectCount, onManageTags, deployment, onSignOut }: {
+function SettingsPage({ user, itemCount, projectCount, onManageTags, deployment, onSignOut, downloadEnabled }: {
   user: { name: string; email: string };
   itemCount: number;
   projectCount: number;
   onManageTags: () => void;
   deployment: 'sites' | 'pages';
   onSignOut?: () => void;
+  downloadEnabled: boolean;
 }) {
   return <section className="page-section settings-section">
     <p className="eyebrow">个人空间</p><h1>设置</h1>
@@ -502,7 +534,7 @@ function SettingsPage({ user, itemCount, projectCount, onManageTags, deployment,
         <div className="settings-icon"><ShieldCheck /></div><div><small>账号与隐私</small><h3>{deployment === 'pages' ? '独立邮箱账号' : '由 ChatGPT 安全登录'}</h3><p>{deployment === 'pages' ? '由云端身份服务验证账号，数据库与私有图片按账号隔离。' : '本站不保存密码；账号身份与登录状态由登录服务管理。'}</p></div>
       </article>
       <article className="settings-card">
-        <div className="settings-icon"><Cloud /></div><div><small>图片下载引擎</small><h3>{deployment === 'pages' ? '相册 / 截图上传' : 'XHS-Downloader 兼容接口'}</h3><p>{deployment === 'pages' ? 'Pages 不运行下载器。可保存链接并上传照片；XHS-Downloader 需另接服务。' : '优先调用独立下载服务；遇到链接过期或风控时，可在收藏详情中补充截图。'}</p></div>
+        <div className="settings-icon"><Cloud /></div><div><small>图片下载引擎</small><h3>{downloadEnabled ? 'XHS-Downloader · 测试接入' : deployment === 'pages' ? '相册 / 截图上传' : 'XHS-Downloader 兼容接口'}</h3><p>{downloadEnabled ? '保存链接时尝试下载图文图片到私有图库；已有图片不会自动覆盖。免费后台会休眠，受限时可上传截图，不保证所有链接均可下载。' : deployment === 'pages' ? 'Pages 不运行下载器。可保存链接并上传照片；XHS-Downloader 需另接服务。' : '优先调用独立下载服务；遇到链接过期或风控时，可在收藏详情中补充截图。'}</p></div>
       </article>
     </div>
     <div className="settings-note"><LockKeyhole /><div><strong>{deployment === 'pages' ? '关于资料迁移' : '关于中国大陆访问'}</strong><p>{deployment === 'pages' ? '原站的账号和收藏不会自动转入新空间。GitHub Pages 与云端服务的可达性取决于当前网络。' : '当前网址依赖 ChatGPT 登录与 chatgpt.site 网络，因此在部分大陆网络中可能无法连接。更换按钮或普通域名不能彻底解决，需要迁移到可在大陆访问的云服务并替换登录系统。'}</p></div></div>

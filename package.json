@@ -10,7 +10,7 @@
     "build": "vinext build",
     "build:pages": "vite build --config vite.pages.config.ts",
     "dev:pages": "vite --config vite.pages.config.ts",
-    "test:pages": "node scripts/test-pages.mjs",
+    "test:pages": "node scripts/test-pages.mjs && node scripts/test-workspace.mjs && node scripts/test-agent-edge.mjs && node scripts/test-project-flow.mjs && node scripts/test-downloader.mjs",
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint",
     "format": "oxfmt",

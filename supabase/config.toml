@@ -1,0 +1,4 @@
+# Auth is explicitly verified using /auth/v1/user inside the handler, before data access.
+# The gateway's legacy JWT-only API-key check is not used with modern publishable keys.
+[functions.shooting-agent]
+verify_jwt = false

@@ -3,7 +3,9 @@ import { readFile } from 'node:fs/promises';
 import ts from 'typescript';
 
 const source = await readFile(new URL('../pages/cloud.ts', import.meta.url), 'utf8');
-const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+const shared = ts.transpileModule(await readFile(new URL('../lib/shooting.ts', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+const sharedUri = `data:text/javascript;base64,${Buffer.from(shared).toString('base64')}`;
+const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText.replace("'../lib/shooting'", JSON.stringify(sharedUri));
 const { Cloud, validateConfig } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
 const memory = new Map();
 globalThis.localStorage = { getItem: key => memory.get(key) ?? null, setItem: (key, value) => memory.set(key, value), removeItem: key => memory.delete(key) };

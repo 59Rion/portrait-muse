@@ -13,7 +13,10 @@ function initialConfig(): CloudConfig | null {
     const configured = import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY
       ? { url: import.meta.env.VITE_SUPABASE_URL, key: import.meta.env.VITE_SUPABASE_ANON_KEY }
       : JSON.parse(localStorage.getItem(configKey) || 'null') || defaultConfig;
-    return configured ? validateConfig(configured) : null;
+    if (!configured) return null;
+    const defaults = defaultConfig as CloudConfig;
+    if (configured.url === defaults.url) return validateConfig({ ...defaults, ...configured, downloaderUrl: defaults.downloaderUrl, projectWorkspaceEnabled: defaults.projectWorkspaceEnabled === true });
+    return validateConfig({ url: configured.url, key: configured.key });
   } catch { return null; }
 }
 
@@ -33,7 +36,7 @@ function App() {
     void client.resumeEmailConfirmation().then(() => setSession(client.session)).catch(e => setError(e instanceof Error ? e.message : '请重新登录。'));
   }, [client]);
 
-  if (client && session) return <InspirationApp user={{ name: session.user.user_metadata?.name || session.user.email.split('@')[0], email: session.user.email }} deployment="pages" transport={client.transport} onSignOut={() => { void client.signOut().finally(() => { setSession(null); window.location.reload(); }); }} />;
+  if (client && session) return <InspirationApp user={{ name: session.user.user_metadata?.name || session.user.email.split('@')[0], email: session.user.email }} deployment="pages" transport={client.transport} workspaceEnabled={client.config.projectWorkspaceEnabled === true} downloadEnabled={Boolean(client.config.downloaderUrl)} onSignOut={() => { void client.signOut().finally(() => { setSession(null); window.location.reload(); }); }} />;
 
   return <main className="auth-shell"><section className="auth-card pages-auth">
     <div className="brand-mark"><Aperture /></div><p className="eyebrow">PORTRAIT MUSE · 人像灵感库</p>

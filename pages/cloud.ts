@@ -1,9 +1,11 @@
-export type CloudConfig = { url: string; key: string };
+import { emptyBrief, parseBrief, parsePlan, rankReferences, type Reference } from '../lib/shooting';
+export type CloudConfig = { url: string; key: string; downloaderUrl?: string; projectWorkspaceEnabled?: boolean };
 export type Session = { access_token: string; refresh_token: string; expires_at: number; user: { id: string; email: string; user_metadata?: { name?: string } } };
 type Row = Record<string, any>;
 const sessionKey = 'portrait-muse-cloud-session';
 
 export function validateConfig(config: CloudConfig) {
+  if (config.downloaderUrl && !/^https:\/\/[a-z0-9-]+\.onrender\.com$/.test(config.downloaderUrl)) throw new Error('下载服务必须使用已确认的 Render HTTPS 地址。');
   if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(config.url)) throw new Error('请输入 https://项目编号.supabase.co 格式的项目地址。');
   if (config.key.startsWith('sb_publishable_')) return config;
   try {
@@ -89,6 +91,16 @@ export class Cloud {
   async record(row: Row) {
     return { id: row.id, sourceUrl: row.source_url, title: row.title, description: row.description, summary: row.summary, primaryTag: row.primary_tag, tags: row.tags || [], status: row.status, coverUrl: await this.signedUrl(row.cover_key), createdAt: row.created_at };
   }
+  async downloadRemote(id: string) {
+    if (!this.config.downloaderUrl) throw new Error('下载后台尚未连接。链接已保存，可先上传截图。');
+    await this.ready();
+    const response = await fetch(`${this.config.downloaderUrl}/imports`, { method: 'POST', headers: { Authorization: `Bearer ${this.session!.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ inspirationId: id }), signal: AbortSignal.timeout(180_000) });
+    const data = await response.json().catch(() => ({})) as Row;
+    if (!response.ok) throw new Error(data.error || '下载后台尚未启动或暂时受限，请稍后在收藏详情重试。');
+    const [row] = await this.table('inspirations', `id=eq.${id}`);
+    if (!row) throw new Error('图片导入后未能重新读取收藏，请刷新页面。');
+    return { inspiration: await this.record(row), message: data.message, downloadedCount: data.count, skipped: data.skipped };
+  }
   private async uploads(id: string, form: FormData) {
     const files = form.getAll('images').filter((value): value is File => value instanceof File && value.size > 0);
     if (!files.length || files.length > 12 || files.some(f => !['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'image/gif', 'image/avif'].includes(f.type) || f.size > 15_000_000) || files.reduce((n, f) => n + f.size, 0) > 40_000_000) throw new Error('请选择 1–12 张照片，每张不超过 15 MB，总计不超过 40 MB。');
@@ -123,6 +135,46 @@ export class Cloud {
       const method = init.method || 'GET';
       const body = typeof init.body === 'string' ? JSON.parse(init.body) : {};
       const uid = this.session!.user.id;
+      const downloadRoute = path.pathname.match(/^\/api\/inspirations\/([\w-]+)\/download$/);
+      if (downloadRoute && method === 'POST') return Response.json(await this.downloadRemote(downloadRoute[1]));
+      if (path.pathname === '/api/agent/status') return Response.json(await this.request('/functions/v1/shooting-agent'));
+      if (path.pathname === '/api/agent/turn' && method === 'POST') {
+        return Response.json(await this.request('/functions/v1/shooting-agent', { method: 'POST', body: JSON.stringify(body) }));
+      }
+      if (path.pathname === '/api/references' && method === 'GET') {
+        const ids = path.searchParams.get('ids');
+        if (ids && !/^[a-z0-9,-]{1,2000}$/i.test(ids)) throw new Error('参考 ID 无效。');
+        const rows = await this.table('inspirations', ids ? `id=in.(${ids})&limit=30` : 'order=created_at.desc&limit=500');
+        const ranked = rankReferences(rows as Reference[], path.searchParams.get('query') || '').slice(0, 60);
+        return Response.json({ references: await Promise.all(ranked.map(async row => ({ ...await this.record(row), reason: row.reason }))) });
+      }
+      const workspace = path.pathname.match(/^\/api\/projects\/([\w-]+)$/);
+      if (workspace && method === 'GET') {
+        const id = workspace[1];
+        const [project] = await this.table('shoot_projects', `id=eq.${id}`);
+        if (!project) return Response.json({ error: '项目不存在或无权访问。' }, { status: 404 });
+        const [briefs, versions, members, messages] = await Promise.all([
+          this.table('project_briefs', `project_id=eq.${id}`),
+          this.table('shooting_plans', `project_id=eq.${id}&order=version.desc&limit=100`),
+          this.table('project_items', `project_id=eq.${id}&select=inspiration_id`),
+          this.table('project_messages', `project_id=eq.${id}&order=created_at.desc&limit=50`),
+        ]);
+        const rows = members.length ? await this.table('inspirations', `id=in.(${members.map(m => m.inspiration_id).join(',')})`) : [];
+        return Response.json({ project, brief: briefs[0]?.data || emptyBrief, briefSaved: Boolean(briefs.length), versions, references: await Promise.all(rows.map(row => this.record(row))), messages: messages.reverse() });
+      }
+      const briefRoute = path.pathname.match(/^\/api\/projects\/([\w-]+)\/brief$/);
+      if (briefRoute && method === 'PUT') {
+        const brief = parseBrief(body.brief);
+        await this.table('project_briefs', 'on_conflict=project_id', 'POST', { project_id: briefRoute[1], user_id: uid, data: brief, updated_at: Date.now() });
+        return Response.json({ ok: true, brief });
+      }
+      const planRoute = path.pathname.match(/^\/api\/projects\/([\w-]+)\/plans$/);
+      if (planRoute && method === 'POST') {
+        const plan = parsePlan(body.plan);
+        const brief = parseBrief(body.brief);
+        const version = await this.request('/rest/v1/rpc/confirm_shooting_plan', { method: 'POST', body: JSON.stringify({ p_project: planRoute[1], p_plan: plan, p_brief: brief, p_origin: body.origin === 'ai' ? 'ai' : 'manual', p_note: String(body.note || '').slice(0, 1000) }) });
+        return Response.json({ version });
+      }
       if (path.pathname === '/api/inspirations') {
         if (method === 'GET') {
           const rows = await this.table('inspirations', 'select=*&order=created_at.desc&limit=200') as Row[];
@@ -146,6 +198,10 @@ export class Cloud {
         if (form.getAll('images').length) {
           try { const uploaded = await this.uploads(id, form); return Response.json({ inspiration: { ...await this.record(row), status: 'ready', coverUrl: uploaded.coverUrl } }, { status: 201 }); }
           catch (error) { throw new Error(`链接记录已保存，图片上传失败。请打开该收藏补传：${error instanceof Error ? error.message : ''}`); }
+        }
+        if (source && this.config.downloaderUrl) {
+          try { return Response.json(await this.downloadRemote(id), { status: 201 }); }
+          catch (error) { return Response.json({ inspiration: await this.record(row), downloadWarning: `链接已保存，自动下载未完成：${error instanceof Error ? error.message : '请在详情重试或上传截图。'}` }, { status: 201 }); }
         }
         return Response.json({ inspiration: await this.record(row) }, { status: 201 });
       }
@@ -183,7 +239,9 @@ export class Cloud {
       }
       const projectItems = path.pathname.match(/^\/api\/projects\/([\w-]+)\/items$/);
       if (projectItems && method === 'POST') {
-        await this.table('project_items', 'on_conflict=project_id,inspiration_id', 'POST', { user_id: uid, project_id: projectItems[1], inspiration_id: body.inspirationId });
+        const ids = body.inspirationIds || [body.inspirationId];
+        if (!Array.isArray(ids) || !ids.length || ids.length > 30 || ids.some(id => typeof id !== 'string' || !/^[a-z0-9-]{1,64}$/i.test(id))) throw new Error('请选择 1–30 条有效参考。');
+        await this.table('project_items', 'on_conflict=project_id,inspiration_id', 'POST', [...new Set(ids)].map(id => ({ user_id: uid, project_id: projectItems[1], inspiration_id: id })));
         return Response.json({ ok: true });
       }
       return Response.json({ error: '该功能尚未接入。' }, { status: 404 });
