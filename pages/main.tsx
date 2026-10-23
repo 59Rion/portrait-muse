@@ -48,7 +48,7 @@ function App() {
   }
   useEffect(() => {
     if (!client) return;
-    void checkConnection();
+    if (!client.session) void checkConnection();
     void client.resumeEmailConfirmation().then(() => setSession(client.session)).catch(e => setError(e instanceof Error ? e.message : '请重新登录。'));
   }, [client]);
 

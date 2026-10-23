@@ -4,6 +4,20 @@ export type Session = { access_token: string; refresh_token: string; expires_at:
 type Row = Record<string, any>;
 const sessionKey = 'portrait-muse-cloud-session';
 
+export function extractShareSource(shared: string) {
+  const candidates = shared.replace(/[\u200b-\u200d\ufeff]/g, '').match(/https?:\/\/[^\s<>"'()\[\]{}]+/gi) || [];
+  for (const candidate of candidates) {
+    const raw = candidate.replace(/[，。；、！？!…]+$/, '');
+    try {
+      const url = new URL(raw);
+      if (!['xiaohongshu.com', 'www.xiaohongshu.com', 'xhslink.cn', 'www.xhslink.cn', 'xhslink.com', 'www.xhslink.com'].includes(url.hostname) || url.username || url.password || url.port) continue;
+      url.protocol = 'https:'; url.hash = '';
+      return { url: url.href, raw };
+    } catch { /* Try the next official share URL. */ }
+  }
+  return { url: '', raw: '' };
+}
+
 export function validateConfig(config: CloudConfig) {
   if (config.downloaderUrl && !/^https:\/\/[a-z0-9-]+\.onrender\.com$/.test(config.downloaderUrl) && config.downloaderUrl !== `${config.url}/functions/v1/media-import`) throw new Error('下载服务必须属于本站云端项目或已确认的 Render HTTPS 地址。');
   if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(config.url)) throw new Error('请输入 https://项目编号.supabase.co 格式的项目地址。');
@@ -18,11 +32,13 @@ export function validateConfig(config: CloudConfig) {
 export class Cloud {
   session: Session | null = null;
   private refreshPending: Promise<void> | null = null;
+  private signedCache = new Map<string, { url: string; expires: number }>();
   constructor(public config: CloudConfig) {
     validateConfig(config);
     try { this.session = JSON.parse(localStorage.getItem(`${sessionKey}:${config.url}`) || 'null'); } catch { this.session = null; }
   }
   setSession(value: Session | null) {
+    if (!value || value.user.id !== this.session?.user.id) this.signedCache.clear();
     this.session = value;
     if (value) localStorage.setItem(`${sessionKey}:${this.config.url}`, JSON.stringify(value));
     else localStorage.removeItem(`${sessionKey}:${this.config.url}`);
@@ -83,7 +99,7 @@ export class Cloud {
     headers.set('apikey', this.config.key);
     headers.set('Authorization', `Bearer ${this.session!.access_token}`);
     if (typeof init.body === 'string') headers.set('Content-Type', 'application/json');
-    const response = await fetch(`${this.config.url}${path}`, { ...init, headers });
+    const response = await fetch(`${this.config.url}${path}`, { ...init, headers, signal: init.signal || AbortSignal.timeout(20000) });
     if (!response.ok) {
       const data = await response.json().catch(() => ({})) as Row;
       throw new Error(data.message || data.error || '云端操作失败，请确认数据库初始化及访问策略。');
@@ -99,12 +115,40 @@ export class Cloud {
   }
   async signedUrl(key: string | null, bucket = 'portrait-images') {
     if (!key) return null;
+    await this.ready();
+    const uid = this.session!.user.id;
     if (!['portrait-images', 'portrait-videos'].includes(bucket)) throw new Error('不支持的媒体存储空间。');
+    const cacheKey = `${this.session!.user.id}:${bucket}:${key}`;
+    const cached = this.signedCache.get(cacheKey);
+    if (cached && cached.expires > Date.now()) return cached.url;
     const data = await this.request(`/storage/v1/object/sign/${bucket}/${key}`, { method: 'POST', body: JSON.stringify({ expiresIn: 3600 }) });
-    return `${this.config.url}/storage/v1${data.signedURL}`;
+    if (this.session?.user.id !== uid) throw new Error('账号已切换，请重新加载。');
+    const url = `${this.config.url}/storage/v1${data.signedURL}`;
+    this.signedCache.set(cacheKey, { url, expires: Date.now() + 3000000 });
+    return url;
   }
-  async record(row: Row) {
-    return { id: row.id, sourceUrl: row.source_url, title: row.title, description: row.description, summary: row.summary, primaryTag: row.primary_tag, tags: row.tags || [], status: row.status, coverUrl: await this.signedUrl(row.cover_key), createdAt: row.created_at };
+  async signedUrls(keys: string[], bucket = 'portrait-images') {
+    await this.ready();
+    if (!['portrait-images', 'portrait-videos'].includes(bucket)) throw new Error('不支持的媒体存储空间。');
+    const uid = this.session!.user.id;
+    if (this.signedCache.size > 2000) this.signedCache.clear();
+    const missing = [...new Set(keys.filter(Boolean))].filter(key => (this.signedCache.get(`${uid}:${bucket}:${key}`)?.expires || 0) <= Date.now());
+    if (missing.length) {
+      const rows = await this.request(`/storage/v1/object/sign/${bucket}`, { method: 'POST', body: JSON.stringify({ expiresIn: 3600, paths: missing }) }) as unknown as Row[];
+      if (!Array.isArray(rows)) throw new Error('媒体访问链接返回格式异常。');
+      if (this.session?.user.id !== uid) throw new Error('账号已切换，请重新加载。');
+      for (const row of rows) if (row.path && row.signedURL && !row.error) {
+        this.signedCache.set(`${uid}:${bucket}:${row.path}`, { url: `${this.config.url}/storage/v1${row.signedURL}`, expires: Date.now() + 3000000 });
+      }
+    }
+    return new Map(keys.map(key => { const entry = this.signedCache.get(`${uid}:${bucket}:${key}`); return [key, entry && entry.expires > Date.now() ? entry.url : null]; }));
+  }
+  async record(row: Row, coverUrl?: string | null) {
+    return { id: row.id, sourceUrl: row.source_url, title: row.title, description: row.description, summary: row.summary, primaryTag: row.primary_tag, tags: row.tags || [], status: row.status, coverUrl: coverUrl === undefined ? await this.signedUrl(row.cover_key) : coverUrl, createdAt: row.created_at };
+  }
+  async records(rows: Row[]) {
+    const covers = await this.signedUrls(rows.map(row => row.cover_key).filter(Boolean)).catch(() => new Map<string, string | null>());
+    return Promise.all(rows.map(row => this.record(row, covers.get(row.cover_key) || null)));
   }
   async downloadRemote(id: string) {
     if (!this.config.downloaderUrl) throw new Error('下载后台尚未连接。链接已保存，可先上传截图。');
@@ -191,14 +235,23 @@ export class Cloud {
         const version = await this.request('/rest/v1/rpc/confirm_shooting_plan', { method: 'POST', body: JSON.stringify({ p_project: planRoute[1], p_plan: plan, p_brief: brief, p_origin: body.origin === 'ai' ? 'ai' : 'manual', p_note: String(body.note || '').slice(0, 1000) }) });
         return Response.json({ version });
       }
+      if (path.pathname === '/api/inspirations/covers' && method === 'GET') {
+        const ids = path.searchParams.get('ids') || '';
+        if (!/^[a-f0-9,-]{1,7500}$/i.test(ids)) throw new Error('收藏 ID 无效。');
+        const rows = await this.table('inspirations', `id=in.(${ids})&select=id,cover_key&limit=200`);
+        const covers = await this.signedUrls(rows.map(row => row.cover_key).filter(Boolean));
+        return Response.json({ covers: rows.map(row => ({ id: row.id, coverUrl: covers.get(row.cover_key) || null })) });
+      }
       if (path.pathname === '/api/inspirations') {
         if (method === 'GET') {
           const rows = await this.table('inspirations', 'select=*&order=created_at.desc&limit=200') as Row[];
-          return Response.json({ inspirations: await Promise.all(rows.map(row => this.record(row))) });
+          return Response.json({ inspirations: await Promise.all(rows.map(async row => ({ ...await this.record(row, null), coverPending: Boolean(row.cover_key) }))) });
         }
         const form = init.body as FormData;
         const shared = String(form.get('sharedText') || '').trim();
-        const source = (shared.match(/https?:\/\/[^\s]+/i)?.[0] || '').replace(/[，。；、)）\]】]+$/, '');
+        const extracted = extractShareSource(shared);
+        const source = extracted.url;
+        if (!source && /https?:\/\//i.test(shared)) throw new Error('请粘贴小红书官方分享链接或完整分享文案。');
         if (!source && !form.getAll('images').length) throw new Error('请粘贴链接或选择照片。');
         if (source) {
           const parsed = new URL(source);
@@ -209,7 +262,7 @@ export class Cloud {
             return Response.json({ error: '这篇内容已经在你的灵感库里了。' }, { status: 409 });
           }
         }
-        const text = shared.replace(source, '').replace(/先复制一下[\s\S]*$/, '').trim();
+        const text = shared.replace(extracted.raw, '').replace(/(?:先复制|打开【小红书】|留住这段口令|戳进【小红书】)[\s\S]*$/, '').trim();
         const tags = ['人像', ...Object.entries({ 韩系: /韩系|韩风/, 汉服: /汉服|古风|国风/, 少女: /少女|青春/, 氛围感: /氛围|情绪|电影/, 清冷: /清冷|冷调|蓝调/, 自然光: /自然光|逆光|日落/, 相机参考: /松下|相机|镜头|lumix/i, 复古: /复古|胶片/ }).filter(([, pattern]) => pattern.test(text)).map(([name]) => name)];
         const id = crypto.randomUUID();
         const [row] = await this.table('inspirations', '', 'POST', { id, user_id: uid, source_url: source || null, title: text.slice(0, 100) || '新收藏的摄影灵感', description: text, summary: '已保存来源。可上传照片或截图，补充这组拍摄参考。', primary_tag: tags[1] || '人像', tags, status: 'needs_upload' }) as Row[];
@@ -234,7 +287,12 @@ export class Cloud {
       if (images) {
         if (method === 'POST') return Response.json(await this.uploads(images[1], init.body as FormData));
         const rows = await this.table('inspiration_images', `inspiration_id=eq.${images[1]}&order=position.asc`) as Row[];
-        return Response.json({ images: await Promise.all(rows.map(async row => ({ ...row, url: await this.signedUrl(row.storage_key, row.media_bucket || 'portrait-images') }))) });
+        const urls = new Map<string, string | null>();
+        for (const bucket of ['portrait-images', 'portrait-videos']) {
+          const keys = rows.filter(row => (row.media_bucket || 'portrait-images') === bucket).map(row => row.storage_key);
+          if (keys.length) for (const [key, url] of await this.signedUrls(keys, bucket)) urls.set(key, url);
+        }
+        return Response.json({ images: rows.map(row => ({ ...row, url: urls.get(row.storage_key) || null })) });
       }
       const item = path.pathname.match(/^\/api\/inspirations\/([\w-]+)$/);
       if (item) {
@@ -272,4 +330,3 @@ export class Cloud {
     }
   };
 }
-

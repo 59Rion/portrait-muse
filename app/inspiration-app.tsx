@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Aperture, Archive, ArrowUpRight, Camera, Check, ChevronRight, Cloud,
   BookOpen, ExternalLink, FolderHeart, HardDrive, ImagePlus, Library, LoaderCircle, LockKeyhole,
@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { ProjectWorkspace } from '@/app/project-workspace';
+const ProjectWorkspace = lazy(async () => ({ default: (await import('@/app/project-workspace')).ProjectWorkspace }));
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
@@ -26,6 +26,7 @@ type Inspiration = {
   tags: string[];
   status: string;
   coverUrl: string | null;
+  coverPending?: boolean;
   createdAt: number;
 };
 
@@ -59,6 +60,8 @@ export function InspirationApp({ user, transport, deployment = 'sites', onSignOu
   const [selected, setSelected] = useState<Inspiration | null>(null);
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState('');
+  const [libraryLoading, setLibraryLoading] = useState(true);
+  const [libraryError, setLibraryError] = useState('');
   const [projectOpen, setProjectOpen] = useState(false);
   const [projectName, setProjectName] = useState('');
   const [openProjectId, setOpenProjectId] = useState<string | null>(null);
@@ -127,7 +130,7 @@ export function InspirationApp({ user, transport, deployment = 'sites', onSignOu
           const response = await fetch('/api/inspirations', { method: 'POST', body: form });
           const data = await response.json() as { inspiration?: Inspiration; error?: string };
           if (!response.ok || !data.inspiration) throw new Error(data.error || '保存失败');
-          setItems((current) => [data.inspiration!, ...current]);
+          setItems((current) => [data.inspiration!, ...current.filter(item => item.id !== data.inspiration!.id)]);
           setView('library');
           setMessage('已通过快捷工具保存到你的私人灵感库。');
           return { id: data.inspiration.id, title: data.inspiration.title, status: data.inspiration.status };
@@ -140,14 +143,24 @@ export function InspirationApp({ user, transport, deployment = 'sites', onSignOu
   }, []);
 
   async function loadData() {
-    try {
-      const [inspirationResponse, projectResponse, tagResponse] = await Promise.all([
-        fetch('/api/inspirations'), fetch('/api/projects'), fetch('/api/tags'),
-      ]);
+    setLibraryLoading(true); setLibraryError('');
+    // Each section can render as soon as its own request finishes.
+    const libraryTask = (async () => {
+      const inspirationResponse = await fetch('/api/inspirations');
+      if (!inspirationResponse.ok) throw new Error('资料库加载失败，请检查网络后重试。');
       if (inspirationResponse.ok) {
         const data = await inspirationResponse.json() as { inspirations: Inspiration[] };
         if (data.inspirations.length) {
           setItems(data.inspirations);
+          if (deployment === 'pages') {
+            const ids = data.inspirations.filter(item => item.coverPending).map(item => item.id);
+            if (ids.length) void fetch(`/api/inspirations/covers?ids=${ids.join(',')}`).then(async response => {
+              if (!response.ok) throw new Error('封面暂时未能加载，可刷新重试。');
+              const result = await response.json() as { covers: { id: string; coverUrl: string | null }[] };
+              const covers = new Map(result.covers.map(item => [item.id, item.coverUrl]));
+              setItems(current => current.map(item => covers.has(item.id) ? { ...item, coverUrl: covers.get(item.id) || null, coverPending: false } : item));
+            }).catch(() => setLibraryError('收藏文字已加载，封面暂时未能连接。可点击重新加载。'));
+          }
         } else if (deployment !== 'pages' && !localStorage.getItem('portrait-muse-starter-imported')) {
           localStorage.setItem('portrait-muse-starter-imported', 'pending');
           const starterForm = new FormData();
@@ -165,26 +178,32 @@ export function InspirationApp({ user, transport, deployment = 'sites', onSignOu
           }
         }
       }
+    })().catch(error => setLibraryError(error instanceof Error ? error.message : '无法连接资料库，请重试。')).finally(() => setLibraryLoading(false));
+    const projectsTask = fetch('/api/projects').then(async projectResponse => {
       if (projectResponse.ok) {
         const data = await projectResponse.json() as { projects: Project[] };
         setProjects(data.projects);
       }
+    }).catch(() => undefined);
+    const tagsTask = fetch('/api/tags').then(async tagResponse => {
       if (tagResponse.ok) {
         const data = await tagResponse.json() as { tags: string[] };
         setUserTags(data.tags);
       }
-    } catch {
-      setMessage('无法连接资料库，请检查网络或云端空间配置。');
-    }
+    }).catch(() => undefined);
+    await Promise.allSettled([libraryTask, projectsTask, tagsTask]);
   }
 
   useEffect(() => {
     setDetailNotice('');
     if (!selected) { setGallery([]); return; }
+    let alive = true;
+    setGallery([]);
     void fetch(`/api/inspirations/${selected.id}/images`)
       .then(async (response) => response.ok ? await response.json() as { images: InspirationImage[] } : { images: [] as InspirationImage[] })
-      .then((data) => setGallery(data.images))
-      .catch(() => setGallery([]));
+      .then((data) => alive && setGallery(data.images.filter(image => Boolean(image.url))))
+      .catch(() => alive && setDetailNotice('媒体加载失败，请关闭详情后重试。'));
+    return () => { alive = false; };
   }, [selected?.id]);
 
   async function handleImport() {
@@ -201,7 +220,7 @@ export function InspirationApp({ user, transport, deployment = 'sites', onSignOu
       const response = await fetch('/api/inspirations', { method: 'POST', body: form });
       const data = await response.json() as { inspiration?: Inspiration; error?: string; downloadWarning?: string; message?: string };
       if (!response.ok || !data.inspiration) throw new Error(data.error || '导入失败');
-      setItems((current) => [data.inspiration!, ...current]);
+      setItems((current) => [data.inspiration!, ...current.filter(item => item.id !== data.inspiration!.id)]);
       setSharedText('');
       setSelectedFiles([]);
       if (fileRef.current) fileRef.current.value = '';
@@ -421,12 +440,14 @@ export function InspirationApp({ user, transport, deployment = 'sites', onSignOu
               {availableTags.map((name) => <button key={name} className={filter === name ? 'active' : ''} onClick={() => setFilter(name)}>{name}</button>)}
               <button className="tag-add-button" onClick={() => setTagManagerOpen(true)} aria-label="编辑标签"><Plus /> 编辑标签</button>
             </div>
-            {visibleItems.length ? <div className="inspiration-grid">{visibleItems.map((item) => <InspirationCard key={item.id} item={item} onClick={() => { setSelected(item); setTagDraft(item.tags.join('，')); setEditingTags(false); }} />)}</div>
+            {libraryError && <p role="status" className="library-load-notice">{libraryError} <button onClick={() => void loadData()}>重新加载</button></p>}
+            {libraryLoading && !items.length ? <div className="inspiration-grid" aria-label="正在加载灵感库" aria-busy="true">{[0,1,2,3].map(n => <div key={n} className="library-skeleton"><div /><span /><span /></div>)}</div> :
+            visibleItems.length ? <div className="inspiration-grid">{visibleItems.map((item) => <InspirationCard key={item.id} item={item} onClick={() => { setSelected(item); setTagDraft(item.tags.join('，')); setEditingTags(false); }} />)}</div>
               : <div className="empty-state"><Archive /><h3>还没有符合条件的灵感</h3><p>换一个标签，或者收藏一篇新的笔记。</p></div>}
           </section>
         </>}
 
-        {view === 'projects' && openProjectId && deployment === 'pages' && workspaceEnabled && <ProjectWorkspace key={openProjectId} projectId={openProjectId} transport={fetch} onBack={() => setOpenProjectId(null)} onChanged={() => void loadData()} />}
+        {view === 'projects' && openProjectId && deployment === 'pages' && workspaceEnabled && <Suspense fallback={<p role="status" className="studio-notice">正在打开拍摄工作台…</p>}><ProjectWorkspace key={openProjectId} projectId={openProjectId} transport={fetch} onBack={() => setOpenProjectId(null)} onChanged={() => void loadData()} /></Suspense>}
         {view === 'projects' && (!openProjectId || deployment !== 'pages' || !workspaceEnabled) && <section className="page-section">
           <div className="section-heading">
             <div><p className="eyebrow">从灵感到现场</p><h1>拍摄项目</h1><p>把妆造、场景、姿势和光线参考收拢到一次拍摄里。</p></div>
@@ -503,7 +524,7 @@ function NavButton({ active, icon, onClick, children }: { active: boolean; icon:
 
 function InspirationCard({ item, onClick }: { item: Inspiration; onClick: () => void }) {
   return <button className="inspiration-card" onClick={onClick}>
-    <div className="card-image">{item.coverUrl ? <img src={item.coverUrl} alt="" /> : <div className="image-placeholder"><Cloud /><span>等待上传图片</span></div>}{item.status === 'needs_upload' && <span className="status-pill">待补图</span>}</div>
+    <div className="card-image">{item.coverUrl ? <img src={item.coverUrl} alt="" loading="lazy" decoding="async" /> : <div className="image-placeholder"><Cloud /><span>{item.coverPending ? '正在加载封面' : '等待上传图片'}</span></div>}{item.status === 'needs_upload' && <span className="status-pill">待补图</span>}</div>
     <div className="card-copy"><h3>{item.title}</h3><p>{item.summary}</p><div>{item.tags.slice(0, 3).map((tag) => <span key={tag}>#{tag}</span>)}</div></div>
   </button>;
 }
@@ -557,4 +578,3 @@ function ShortcutGuide() {
     <div className="security-note"><LockKeyhole /><div><strong>为什么需要确认一步？</strong><p>快捷指令只负责把分享内容带到网站，真正保存时仍由已登录的网站验证身份，因此链接一定会进入你的独立空间。</p></div></div>
   </section>;
 }
-

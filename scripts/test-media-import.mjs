@@ -4,7 +4,18 @@ import ts from 'typescript';
 const compile = text => ts.transpileModule(text, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const uri = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`;
 const moduleURI = uri(compile(await readFile(new URL('../supabase/functions/_shared/xhs.ts', import.meta.url), 'utf8')));
-const { sourceURL, mediaURL, parseNote, readNote, readMedia, detectType, bounded } = await import(moduleURI);
+const { sourceURL, mediaURL, parseNote, readNote, readMedia, detectType, bounded, retryRead } = await import(moduleURI);
+let attempts = 0;
+assert.equal((await retryRead(async () => { if (++attempts === 1) throw new TypeError('network'); return new Response('ok'); }, 'https://xhslink.cn/o/test')).status, 200);
+assert.equal(attempts, 2);
+for (const status of [403, 429]) {
+  attempts = 0;
+  assert.equal((await retryRead(async () => { attempts++; return new Response(null, { status }); }, 'https://xhslink.cn/o/test')).status, status);
+  assert.equal(attempts, 1, 'Access restrictions must not be retried');
+}
+attempts = 0;
+await assert.rejects(() => retryRead(async () => { attempts++; throw new TypeError('network'); }, 'https://xhslink.cn/o/test'));
+assert.equal(attempts, 2, 'Network retries are bounded');
 const id = '6a0d87a300000000350264e3';
 const imageURL = 'http://sns-webpic-qc.xhscdn.com/synthetic.jpg';
 const videoURL = 'http://sns-video-v3.xhscdn.com/synthetic.mp4';
@@ -89,4 +100,3 @@ if (process.argv.includes('--live')) {
     console.log(JSON.stringify({ live: label, title: result.title, images, videos, bytes, skipped: result.skipped, cloudWrite: false }));
   }
 }
-

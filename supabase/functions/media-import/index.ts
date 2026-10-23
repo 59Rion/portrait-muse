@@ -1,13 +1,5 @@
-import { bounded, MediaError, readNote, readMedia } from '../_shared/xhs.ts';
+import { bounded, MediaError, readNote, readMedia, retryRead } from '../_shared/xhs.ts';
 declare const Deno: { env: { get(name: string): string | undefined }; createHttpClient?(options: { http1: boolean; http2: boolean }): unknown; serve(handler: (request: Request) => Promise<Response>): void };
-// Keep normal certificate validation; avoid the upstream HTTP/2 handshake stall.
-const externalClient = Deno.createHttpClient?.({ http1: true, http2: false });
-const externalFetch: typeof fetch = async (url, init) => {
-  console.info(JSON.stringify({ event: 'media_source_request', host: new URL(String(url)).hostname, transport: externalClient ? 'http1' : 'default' }));
-  const response = await fetch(url, { ...init, ...(externalClient ? { client: externalClient } : {}) } as RequestInit);
-  console.info(JSON.stringify({ event: 'media_source_response', host: new URL(String(url)).hostname, status: response.status }));
-  return response;
-};
 const origin = 'https://59rion.github.io';
 const cors = { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Headers': 'authorization, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS', Vary: 'Origin', 'Cache-Control': 'no-store' };
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: cors });
@@ -23,6 +15,14 @@ Deno.serve(async request => {
   if (!authorization.startsWith('Bearer ') || authorization.length > 10000) return json({ error: '请先登录。' }, 401);
   const headers = { apikey: key, Authorization: authorization };
   let stage = 'auth';
+  // One HTTP/1.1 client per invocation; never reuse idle sockets across imports.
+  let externalClient: unknown;
+  const externalFetch: typeof fetch = async (url, init) => retryRead(async (target, options) => {
+    console.info(JSON.stringify({ event: 'media_source_request', host: new URL(String(target)).hostname, transport: externalClient ? 'http1' : 'default' }));
+    const response = await fetch(target, { ...options, ...(externalClient ? { client: externalClient } : {}) } as RequestInit);
+    console.info(JSON.stringify({ event: 'media_source_response', host: new URL(String(target)).hostname, status: response.status }));
+    return response;
+  }, url, init);
   const diagnostic = (error: unknown) => {
     const name = error instanceof Error ? error.name : 'UnknownError';
     console.error(JSON.stringify({ event: 'media_import_failed', stage, name }));
@@ -53,6 +53,7 @@ Deno.serve(async request => {
     stage = 'claim';
     await cloud('/rest/v1/rpc/claim_portrait_import', { method: 'POST', body: JSON.stringify({ p_id: id }) });
     stage = 'read_note';
+    externalClient = Deno.createHttpClient?.({ http1: true, http2: false });
     const note = await readNote(item.source_url, externalFetch);
     let size = 0, saved = 0, imageCount = 0, videoCount = 0, failure = '';
     let cover = item.cover_key;
@@ -94,6 +95,5 @@ Deno.serve(async request => {
     diagnostic(error);
     const message = stage === 'read_note' ? '云端连接小红书笔记失败或超时，尚未开始下载图片。链接仍保留。' : `导入在 ${stage} 阶段失败，链接仍保留。`;
     return json({ error: error instanceof MediaError ? error.message : message, stage }, error instanceof MediaError ? error.status : 502);
-  }
+  } finally { (externalClient as { close?: () => void } | undefined)?.close?.(); }
 });
-

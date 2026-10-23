@@ -51,7 +51,7 @@ globalThis.fetch = async (url, init) => {
   assert.equal(headers.get('apikey'), config.key);
   assert.equal(headers.get('Authorization'), 'Bearer synthetic-token');
   if (url === edgeConfig.downloaderUrl) return Response.json({ count: 2, message: '已保存图片和视频' });
-  if (url.includes('/object/sign/')) return Response.json({ signedURL: '/object/sign/portrait-videos/synthetic?token=test' });
+  if (url.includes('/object/sign/')) return Response.json(JSON.parse(init.body).paths.map(path => ({ path, signedURL: '/object/sign/portrait-videos/synthetic?token=test' })));
   if (url.includes('/inspiration_images?')) return Response.json([{ id: 'video-id', content_type: 'video/mp4', media_bucket: 'portrait-videos', storage_key: 'users/test-user/video' }]);
   return Response.json([row]);
 };
@@ -63,4 +63,3 @@ client.setSession(null);
 await assert.rejects(() => client.downloadRemote(row.id), /先登录/);
 assert.equal(imports, 2);
 console.log('Downloader adapter: private token forwarding, source-ID-only requests, successful image refresh, failure retaining links and signed-out refusal passed with synthetic fixtures.');
-

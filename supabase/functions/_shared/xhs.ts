@@ -2,6 +2,19 @@
 export class MediaError extends Error {
   constructor(message: string, public status = 400) { super(message); }
 }
+// Read-only network requests get one bounded retry. Never retry login/captcha/429.
+export async function retryRead(fetcher: typeof fetch, url: string | URL | Request, init: RequestInit = {}) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await fetcher(url, { ...init, signal: AbortSignal.timeout(attempt ? 12000 : 8000) });
+      if (attempt === 0 && [500, 502, 503, 504].includes(response.status)) { await response.body?.cancel(); continue; }
+      return response;
+    } catch (error) {
+      if (attempt || !(error instanceof Error) || !['TimeoutError', 'AbortError', 'TypeError'].includes(error.name)) throw error;
+    }
+  }
+  throw new MediaError('读取超时，请稍后重试。', 504);
+}
 const sourceHosts = new Set(['www.xiaohongshu.com', 'xiaohongshu.com', 'xhslink.cn', 'www.xhslink.cn', 'xhslink.com', 'www.xhslink.com']);
 export function sourceURL(value: string) {
   const u = new URL(value);
@@ -127,4 +140,3 @@ export async function readMedia(url: string, kind: 'image' | 'video', fetcher: t
   }
   throw new MediaError('媒体地址跳转过多。');
 }
-
