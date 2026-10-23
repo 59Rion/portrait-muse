@@ -4,6 +4,7 @@ const origin = 'https://59rion.github.io';
 const cors = { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Headers': 'authorization, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS', Vary: 'Origin', 'Cache-Control': 'no-store' };
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: cors });
 Deno.serve(async request => {
+  const started = Date.now();
   if (request.headers.get('Origin') && request.headers.get('Origin') !== origin) return json({ error: 'Origin not allowed' }, 403);
   if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
@@ -36,7 +37,6 @@ Deno.serve(async request => {
     const existing = await cloud(`/rest/v1/inspiration_images?inspiration_id=eq.${id}&user_id=eq.${user.id}&order=position.asc`);
     if (item.imported_at && existing.length) return json({ count: existing.length, message: '这篇笔记的媒体已经导入，无需重复下载。' });
     await cloud('/rest/v1/rpc/claim_portrait_import', { method: 'POST', body: JSON.stringify({ p_id: id }) });
-    const started = Date.now();
     const note = await readNote(item.source_url);
     let size = 0, saved = 0, imageCount = 0, videoCount = 0, failure = '';
     let cover = item.cover_key;
@@ -49,7 +49,9 @@ Deno.serve(async request => {
       const storageKey = `users/${user.id}/inspirations/${id}/${mediaId}`;
       if (existing.some((x: any) => x.id === mediaId)) { saved++; if (media.kind === 'video') videoCount++; else { imageCount++; cover ||= storageKey; } continue; }
       try {
-        if (Date.now() - started > 90000) throw new MediaError('本次导入达到时间限制，可稍后重试补齐。');
+        // Reserve time for a final fetch, two cloud writes and the status patch
+        // within the free runtime's 150-second wall-clock limit.
+        if (Date.now() - started > 70000) throw new MediaError('本次导入达到时间限制，可稍后重试补齐。');
         const { bytes, contentType } = await readMedia(media.url, media.kind);
         size += bytes.length;
         if (size > 60_000_000) throw new MediaError('本次导入总大小超过 60 MB，请分次保存。');
