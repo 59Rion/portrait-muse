@@ -139,7 +139,9 @@ button { cursor: pointer; }
 .upload-placeholder { display: grid; width: 100%; min-height: 230px; place-items: center; align-content: center; gap: 7px; border: 0; background: transparent; color: #74817d; }
 .upload-placeholder small { color: #879690; }
 .detail-gallery { display: flex; max-height: 52vh; overflow-x: auto; scroll-snap-type: x mandatory; }
-.detail-gallery img { min-width: 100%; scroll-snap-align: center; }
+.detail-gallery .media-slide { flex: 0 0 100%; min-width: 0; scroll-snap-align: center; display: flex; flex-direction: column; background: #172f48; }
+.detail-gallery .media-slide img, .detail-gallery .media-slide video { width: 100%; min-height: 0; flex: 1; object-fit: contain; max-height: 46vh; }
+.media-open { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; color: #eceee1; font-size: 13px; text-decoration: underline; }
 .detail-image > [data-slot="badge"] { position: absolute; left: 16px; bottom: 16px; }
 .tag-cloud { display: flex; flex-wrap: wrap; gap: 7px; }
 .tag-editor { display: flex; gap: 8px; }
@@ -218,3 +220,4 @@ button { cursor: pointer; }
   .shortcut-visual > svg { transform: rotate(90deg); align-self: center; }
   .auth-card { padding: 34px 24px; }
 }
+

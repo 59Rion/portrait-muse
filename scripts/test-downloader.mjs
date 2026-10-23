@@ -41,7 +41,26 @@ assert.equal(failure.status, 201, 'The original link remains saved even when ima
 assert.equal(saved.inspiration.status, 'needs_upload');
 assert.match(saved.downloadWarning, /平台暂时限制下载/);
 assert.equal(imports, 2);
+const edgeConfig = { ...config, downloaderUrl: `${config.url}/functions/v1/media-import` };
+assert.doesNotThrow(() => validateConfig(edgeConfig));
+assert.throws(() => validateConfig({ ...edgeConfig, downloaderUrl: 'https://other.supabase.co/functions/v1/media-import' }));
+const edgeClient = new Cloud(edgeConfig);
+edgeClient.setSession({ access_token: 'synthetic-token', refresh_token: 'synthetic-refresh', expires_at: 9999999999, user: { id: 'test-user', email: 'test@example.invalid' } });
+globalThis.fetch = async (url, init) => {
+  const headers = new Headers(init.headers);
+  assert.equal(headers.get('apikey'), config.key);
+  assert.equal(headers.get('Authorization'), 'Bearer synthetic-token');
+  if (url === edgeConfig.downloaderUrl) return Response.json({ count: 2, message: '已保存图片和视频' });
+  if (url.includes('/object/sign/')) return Response.json({ signedURL: '/object/sign/portrait-videos/synthetic?token=test' });
+  if (url.includes('/inspiration_images?')) return Response.json([{ id: 'video-id', content_type: 'video/mp4', media_bucket: 'portrait-videos', storage_key: 'users/test-user/video' }]);
+  return Response.json([row]);
+};
+assert.equal((await edgeClient.downloadRemote(row.id)).downloadedCount, 2);
+const videoGallery = await (await edgeClient.transport(`/api/inspirations/${row.id}/images`)).json();
+assert.equal(videoGallery.images[0].content_type, 'video/mp4');
+assert.match(videoGallery.images[0].url, /portrait-videos/);
 client.setSession(null);
 await assert.rejects(() => client.downloadRemote(row.id), /先登录/);
 assert.equal(imports, 2);
 console.log('Downloader adapter: private token forwarding, source-ID-only requests, successful image refresh, failure retaining links and signed-out refusal passed with synthetic fixtures.');
+

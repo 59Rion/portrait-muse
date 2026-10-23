@@ -5,7 +5,7 @@ type Row = Record<string, any>;
 const sessionKey = 'portrait-muse-cloud-session';
 
 export function validateConfig(config: CloudConfig) {
-  if (config.downloaderUrl && !/^https:\/\/[a-z0-9-]+\.onrender\.com$/.test(config.downloaderUrl)) throw new Error('下载服务必须使用已确认的 Render HTTPS 地址。');
+  if (config.downloaderUrl && !/^https:\/\/[a-z0-9-]+\.onrender\.com$/.test(config.downloaderUrl) && config.downloaderUrl !== `${config.url}/functions/v1/media-import`) throw new Error('下载服务必须属于本站云端项目或已确认的 Render HTTPS 地址。');
   if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(config.url)) throw new Error('请输入 https://项目编号.supabase.co 格式的项目地址。');
   if (config.key.startsWith('sb_publishable_')) return config;
   try {
@@ -97,9 +97,10 @@ export class Cloud {
   async signOut() {
     try { await this.request('/auth/v1/logout', { method: 'POST' }); } finally { this.setSession(null); }
   }
-  async signedUrl(key: string | null) {
+  async signedUrl(key: string | null, bucket = 'portrait-images') {
     if (!key) return null;
-    const data = await this.request(`/storage/v1/object/sign/portrait-images/${key}`, { method: 'POST', body: JSON.stringify({ expiresIn: 3600 }) });
+    if (!['portrait-images', 'portrait-videos'].includes(bucket)) throw new Error('不支持的媒体存储空间。');
+    const data = await this.request(`/storage/v1/object/sign/${bucket}/${key}`, { method: 'POST', body: JSON.stringify({ expiresIn: 3600 }) });
     return `${this.config.url}/storage/v1${data.signedURL}`;
   }
   async record(row: Row) {
@@ -108,7 +109,8 @@ export class Cloud {
   async downloadRemote(id: string) {
     if (!this.config.downloaderUrl) throw new Error('下载后台尚未连接。链接已保存，可先上传截图。');
     await this.ready();
-    const response = await fetch(`${this.config.downloaderUrl}/imports`, { method: 'POST', headers: { Authorization: `Bearer ${this.session!.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ inspirationId: id }), signal: AbortSignal.timeout(180_000) });
+    const edge = this.config.downloaderUrl === `${this.config.url}/functions/v1/media-import`;
+    const response = await fetch(edge ? this.config.downloaderUrl : `${this.config.downloaderUrl}/imports`, { method: 'POST', headers: { Authorization: `Bearer ${this.session!.access_token}`, 'Content-Type': 'application/json', ...(edge ? { apikey: this.config.key } : {}) }, body: JSON.stringify({ inspirationId: id }), signal: AbortSignal.timeout(180_000) });
     const data = await response.json().catch(() => ({})) as Row;
     if (!response.ok) throw new Error(data.error || '下载后台尚未启动或暂时受限，请稍后在收藏详情重试。');
     const [row] = await this.table('inspirations', `id=eq.${id}`);
@@ -202,7 +204,10 @@ export class Cloud {
           const parsed = new URL(source);
           if (parsed.protocol !== 'https:' || !/^(?:[a-z0-9-]+\.)*(?:xiaohongshu\.com|xhslink\.(?:cn|com))$/.test(parsed.hostname)) throw new Error('目前支持小红书 HTTPS 分享链接。');
           const duplicates = await this.table('inspirations', `source_url=eq.${encodeURIComponent(source)}&select=id`);
-          if (duplicates.length) return Response.json({ error: '这篇内容已经在你的灵感库里了。' }, { status: 409 });
+          if (duplicates.length) {
+            if (this.config.downloaderUrl) return Response.json(await this.downloadRemote(duplicates[0].id));
+            return Response.json({ error: '这篇内容已经在你的灵感库里了。' }, { status: 409 });
+          }
         }
         const text = shared.replace(source, '').replace(/先复制一下[\s\S]*$/, '').trim();
         const tags = ['人像', ...Object.entries({ 韩系: /韩系|韩风/, 汉服: /汉服|古风|国风/, 少女: /少女|青春/, 氛围感: /氛围|情绪|电影/, 清冷: /清冷|冷调|蓝调/, 自然光: /自然光|逆光|日落/, 相机参考: /松下|相机|镜头|lumix/i, 复古: /复古|胶片/ }).filter(([, pattern]) => pattern.test(text)).map(([name]) => name)];
@@ -217,7 +222,7 @@ export class Cloud {
           try { return Response.json(await this.downloadRemote(id), { status: 201 }); }
           catch (error) { return Response.json({ inspiration: await this.record(row), downloadWarning: `链接已保存，自动下载未完成：${error instanceof Error ? error.message : '请在详情重试或上传截图。'}` }, { status: 201 }); }
         }
-        return Response.json({ inspiration: await this.record(row) }, { status: 201 });
+        return Response.json({ inspiration: await this.record(row), downloadWarning: source ? '仅保存了链接：下载后台尚未配置，未发起媒体下载。' : undefined }, { status: 201 });
       }
       if (path.pathname === '/api/tags') {
         if (method === 'GET') return Response.json({ tags: (await this.table('user_tags', 'select=name&order=created_at.asc') as Row[]).map(row => row.name) });
@@ -229,14 +234,17 @@ export class Cloud {
       if (images) {
         if (method === 'POST') return Response.json(await this.uploads(images[1], init.body as FormData));
         const rows = await this.table('inspiration_images', `inspiration_id=eq.${images[1]}&order=position.asc`) as Row[];
-        return Response.json({ images: await Promise.all(rows.map(async row => ({ ...row, url: await this.signedUrl(row.storage_key) }))) });
+        return Response.json({ images: await Promise.all(rows.map(async row => ({ ...row, url: await this.signedUrl(row.storage_key, row.media_bucket || 'portrait-images') }))) });
       }
       const item = path.pathname.match(/^\/api\/inspirations\/([\w-]+)$/);
       if (item) {
         if (method === 'PATCH') await this.table('inspirations', `id=eq.${item[1]}`, 'PATCH', { tags: body.tags, primary_tag: body.primaryTag, updated_at: Date.now() });
         else if (method === 'DELETE') {
-          const images = await this.table('inspiration_images', `inspiration_id=eq.${item[1]}&select=storage_key`) as Row[];
-          if (images.length) await this.request('/storage/v1/object/portrait-images', { method: 'DELETE', body: JSON.stringify({ prefixes: images.map(row => row.storage_key) }) });
+          const images = await this.table('inspiration_images', `inspiration_id=eq.${item[1]}&select=storage_key,media_bucket`) as Row[];
+          for (const bucket of ['portrait-images', 'portrait-videos']) {
+            const keys = images.filter(row => (row.media_bucket || 'portrait-images') === bucket).map(row => row.storage_key);
+            if (keys.length) await this.request(`/storage/v1/object/${bucket}`, { method: 'DELETE', body: JSON.stringify({ prefixes: keys }) });
+          }
           await this.table('inspirations', `id=eq.${item[1]}`, 'DELETE');
         }
         return Response.json({ ok: true });
@@ -264,3 +272,4 @@ export class Cloud {
     }
   };
 }
+

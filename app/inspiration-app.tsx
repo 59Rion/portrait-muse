@@ -30,7 +30,7 @@ type Inspiration = {
 };
 
 type Project = { id: string; name: string; description: string; created_at: number; item_count: number };
-type InspirationImage = { id: string; filename: string; position: number; url: string };
+type InspirationImage = { id: string; filename: string; position: number; url: string; content_type?: string };
 type DailyTip = { tag: string; title: string; text: string; source: string; sourceLabel: string };
 
 const starterShareText = '松门崛起！这些照片都是用松下拍的！ 好像好多宝宝都在问是不是理光拍的！ https://xhslink.cn/o/2DeZqpGnlGT 先复制一下，再到【小红书】打开查看笔记。';
@@ -405,7 +405,7 @@ export function InspirationApp({ user, transport, deployment = 'sites', onSignOu
                   {importing ? <LoaderCircle className="animate-spin" /> : <WandSparkles />}{importing ? '正在整理' : '保存灵感'}
                 </Button>
               </div>
-              {importing && downloadEnabled && <p className="studio-hint">首次启动下载后台可能需要约一分钟，请不要重复提交。只支持图文笔记，受限时可补充截图。</p>}
+              {importing && downloadEnabled && <p className="studio-hint">正在解析并保存图片或视频，请不要重复提交。受限笔记会保留链接并说明原因。图片每张最多 15 MB，视频最多 40 MB。</p>}
               {message && <div className="inline-message"><Check /> {message}<button onClick={() => setMessage('')} aria-label="关闭提示"><X /></button></div>}
             </div>
           </section>
@@ -451,7 +451,7 @@ export function InspirationApp({ user, transport, deployment = 'sites', onSignOu
       <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}>
         <DialogContent className="detail-dialog">{selected && <>
           <div className="detail-image">
-            {gallery.length ? <div className="detail-gallery">{gallery.map((image) => <img key={image.id} src={image.url} alt={image.filename || selected.title} />)}</div>
+            {gallery.length ? <div className="detail-gallery">{gallery.map((image) => <div key={image.id} className="media-slide">{image.content_type?.startsWith('video/') ? <video src={image.url} controls playsInline preload="metadata" aria-label={image.filename || selected.title} /> : <img src={image.url} alt={image.filename || selected.title} />}<a href={image.url} target="_blank" rel="noreferrer" className="media-open">打开原文件 / 保存到设备 <ExternalLink size={14} /></a></div>)}</div>
               : selected.coverUrl ? <img src={selected.coverUrl} alt={selected.title} />
               : <button className="upload-placeholder" onClick={() => detailFileRef.current?.click()}><Upload /><span>上传截图或照片</span><small>小红书无法下载时，截图后从相册选择</small></button>}
             <Badge>{selected.primaryTag}</Badge>
@@ -464,7 +464,7 @@ export function InspirationApp({ user, transport, deployment = 'sites', onSignOu
           <Button className="detail-upload-button" variant="outline" onClick={() => detailFileRef.current?.click()} disabled={uploadingImages}>
             {uploadingImages ? <LoaderCircle className="animate-spin" /> : <ImagePlus />} {uploadingImages ? '正在上传' : '补充截图 / 相册图片'}
           </Button>
-          {deployment === 'pages' && downloadEnabled && selected.sourceUrl && <Button variant="outline" onClick={() => void downloadSelected()} disabled={downloadingImages || uploadingImages}>{downloadingImages ? <LoaderCircle className="animate-spin" /> : <Cloud />}{downloadingImages ? '正在下载，请稍候…' : '尝试下载原帖图片'}</Button>}
+          {deployment === 'pages' && downloadEnabled && selected.sourceUrl && <Button variant="outline" onClick={() => void downloadSelected()} disabled={downloadingImages || uploadingImages}>{downloadingImages ? <LoaderCircle className="animate-spin" /> : <Cloud />}{downloadingImages ? '正在下载，请稍候…' : '获取 / 重试原帖图片与视频'}</Button>}
           {detailNotice && <p role="status" className="studio-notice">{detailNotice}</p>}
           {projects.length > 0 && <select className="project-select" value={selectedProjectId} onChange={(event) => setSelectedProjectId(event.target.value)}><option value="">选择拍摄项目…</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select>}
           <DialogFooter>
@@ -534,7 +534,7 @@ function SettingsPage({ user, itemCount, projectCount, onManageTags, deployment,
         <div className="settings-icon"><ShieldCheck /></div><div><small>账号与隐私</small><h3>{deployment === 'pages' ? '独立邮箱账号' : '由 ChatGPT 安全登录'}</h3><p>{deployment === 'pages' ? '由云端身份服务验证账号，数据库与私有图片按账号隔离。' : '本站不保存密码；账号身份与登录状态由登录服务管理。'}</p></div>
       </article>
       <article className="settings-card">
-        <div className="settings-icon"><Cloud /></div><div><small>图片下载引擎</small><h3>{downloadEnabled ? 'XHS-Downloader · 测试接入' : deployment === 'pages' ? '相册 / 截图上传' : 'XHS-Downloader 兼容接口'}</h3><p>{downloadEnabled ? '保存链接时尝试下载图文图片到私有图库；已有图片不会自动覆盖。免费后台会休眠，受限时可上传截图，不保证所有链接均可下载。' : deployment === 'pages' ? 'Pages 不运行下载器。可保存链接并上传照片；XHS-Downloader 需另接服务。' : '优先调用独立下载服务；遇到链接过期或风控时，可在收藏详情中补充截图。'}</p></div>
+        <div className="settings-icon"><Cloud /></div><div><small>媒体导入</small><h3>{downloadEnabled ? '免费云端解析 · 图片与视频' : deployment === 'pages' ? '相册 / 截图上传' : 'XHS-Downloader 兼容接口'}</h3><p>{downloadEnabled ? '保存小红书分享链接时自动尝试下载到账号私有图库。无需提交小红书密码或 Cookie，不接付费解析 API。单张图片 15 MB、单个 MP4 视频 40 MB，受限或过期链接可在详情重试；不保证所有笔记可下载。云端免费额度用尽后需等待重置。' : deployment === 'pages' ? '仅保存链接并支持上传照片，尚未连接下载后台。' : '优先调用独立下载服务；遇到链接过期或风控时，可在收藏详情中补充截图。'}</p></div>
       </article>
     </div>
     <div className="settings-note"><LockKeyhole /><div><strong>{deployment === 'pages' ? '关于资料迁移' : '关于中国大陆访问'}</strong><p>{deployment === 'pages' ? '原站的账号和收藏不会自动转入新空间。GitHub Pages 与云端服务的可达性取决于当前网络。' : '当前网址依赖 ChatGPT 登录与 chatgpt.site 网络，因此在部分大陆网络中可能无法连接。更换按钮或普通域名不能彻底解决，需要迁移到可在大陆访问的云服务并替换登录系统。'}</p></div></div>
@@ -556,3 +556,4 @@ function ShortcutGuide() {
     <div className="security-note"><LockKeyhole /><div><strong>为什么需要确认一步？</strong><p>快捷指令只负责把分享内容带到网站，真正保存时仍由已登录的网站验证身份，因此链接一定会进入你的独立空间。</p></div></div>
   </section>;
 }
+
