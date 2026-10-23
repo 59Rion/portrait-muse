@@ -1,0 +1,144 @@
+/* Moonlight on paper: the owner's #ECEEE1 / #88ABDA reference palette.
+   The supplied artwork is decorative only, never a saved reference or AI output. */
+:root {
+  --background: #eceee1;
+  --foreground: #263c56;
+  --card: #fbfcf6;
+  --card-foreground: #263c56;
+  --popover: #fbfcf6;
+  --popover-foreground: #263c56;
+  --primary: #88abda;
+  --primary-foreground: #203955;
+  --secondary: #e2e9ec;
+  --secondary-foreground: #375773;
+  --muted: #e6ebdf;
+  --muted-foreground: #596e82;
+  --accent: #d8e4f2;
+  --accent-foreground: #2e4e74;
+  --destructive: #aa435b;
+  --border: #d1dbdc;
+  --input: #bdcddd;
+  --ring: #526f99;
+  --moon-blue: #88abda;
+  --moon-paper: #eceee1;
+  --moon-ink: #263c56;
+  --moon-soft: #596e82;
+}
+::selection { background: #88abda75; color: #203955; }
+body { background: var(--moon-paper); }
+button, a, input, textarea, select { -webkit-tap-highlight-color: #88abda40; }
+:is(button,a,input,textarea,select):focus-visible { outline: 2px solid #526f99; outline-offset: 3px; }
+.desktop-sidebar { background: #e7ecdf; border-color: #ced8d5; }
+.wordmark > span, .brand-mark { background: #88abda; color: #203955; box-shadow: 0 5px 16px #587eac15; }
+.wordmark { color: var(--moon-ink); }
+.nav-button { color: var(--moon-soft); }
+.nav-button:hover, .nav-button.active { background: #fbfcf6; color: #345b89; box-shadow: 0 6px 22px #3552710c; }
+.privacy-card { background: #dce7ef; border-color: #c4d5e5; color: #375773; }
+.privacy-card span, .account small { color: var(--moon-soft); }
+.account > div { background: #d2dfef; color: #34567d; }
+.eyebrow { color: #536e90; }
+
+/* Static artwork + directional scrim keep the form legible at every width. */
+.capture-panel {
+  background-color: #293f60;
+  background-image: linear-gradient(100deg, #1f3456f5 0%, #263f64e8 42%, #365b87a8 100%), url('../public/images/moonlight-reference.jpg');
+  background-size: cover;
+  background-position: center, center 45%;
+  border: 1px solid #b6cbed;
+  box-shadow: 0 18px 46px #304e7320;
+}
+.capture-panel::after { display: none; }
+.capture-panel .eyebrow { color: #d5e4fa; }
+.capture-copy h1 { color: #f4f5eb; font-weight: 550; line-height: 1.28; }
+.daily-tip { background: #eceee1f0; border-color: #f7f9ed88; backdrop-filter: blur(8px); box-shadow: 0 8px 26px #12274212; }
+.daily-tip span { color: #456386; }
+.daily-tip strong { color: #263c56; }
+.daily-tip p { color: #435b72; }
+.daily-tip a { color: #385a83; text-decoration: underline; text-underline-offset: 3px; }
+.daily-tip button { background: #d6e2ef; color: #34567d; }
+.capture-form textarea { background: #162b4b78; border-color: #c2d7ef80; color: #fff; box-shadow: inset 0 1px 0 #ffffff0c; }
+.capture-form textarea::placeholder { color: #e1e8f1; }
+.capture-actions button:first-of-type { background: #eceee114; border-color: #d8e4f28a; color: #f4f5eb; }
+.save-button, .mobile-nav .quick-add { background: #88abda !important; color: #203955 !important; box-shadow: 0 5px 15px #243e6614; }
+.save-button:hover, .mobile-nav .quick-add:hover { background: #9abbe4 !important; }
+.inline-message { background: #132a4bd9; color: #f1f4ed; }
+.section-heading p, .card-copy p, .project-card p, .project-card small,
+.steps p, .shortcut-section .lead, .settings-card p, .settings-card small,
+.empty-state p, .upload-placeholder, .upload-placeholder small { color: var(--moon-soft); }
+.search-field, .filter-row button, .inspiration-card, .project-card, .steps article, .settings-card {
+  background: #fbfcf6; border-color: #d1dbdc;
+}
+.search-field { box-shadow: 0 5px 20px #304d6a07; }
+.search-field svg { color: #597896; }
+.filter-row button { color: #4e6580; }
+.filter-row button.active { background: #88abda; border-color: #88abda; color: #203955; }
+.filter-row .tag-add-button { color: #3d618e; border-color: #819cb9; }
+.inspiration-card { box-shadow: 0 8px 25px #304d6a08; }
+.inspiration-card:hover { box-shadow: 0 16px 36px #304d6a17; }
+.card-image, .detail-image { background: #dce5eb; }
+.image-placeholder { color: #5d7693; background: linear-gradient(145deg, #dce6f4, #e9ecdf); }
+.status-pill { background: #f9faf1f5; color: #425a76; }
+.card-copy > div { color: #42658f; }
+.empty-state { background: #f9faf280; border-color: #b6c7d4; }
+.empty-state > svg { color: #587eac; }
+.project-icon, .settings-icon, .steps article > span { background: #dce6f4; color: #42658f; }
+.project-card button, .settings-action { color: #3c618f; }
+.shortcut-visual { background: linear-gradient(125deg, #6e93c3, #365578); color: #fbfcf6; }
+.project-select { background: #fbfcf6; border-color: #c6d3dd; color: var(--moon-ink); }
+.detail-note { background: #e6ebdf; }
+.detail-note p { color: #52677b; }
+.security-note, .settings-note { background: #e4e8d6; color: #4f6145; }
+.tag-manager-list > div { border-color: #d1dbdc; }
+.mobile-nav { background: #f8faf0f2; border-color: #c9d6df; box-shadow: 0 12px 35px #304e7324; }
+.mobile-nav .nav-button.active { color: #345b89; }
+
+/* The public sign-in screen gets the same identity without exposing user data. */
+.auth-shell { position: relative; isolation: isolate; background: #eceee1; padding-block: 40px; }
+.auth-shell::before { content: ''; position: absolute; z-index: -1; inset: 0; background-image: linear-gradient(180deg, #243b5a18 0%, #eceee160 40%, #eceee1 90%), url('../public/images/moonlight-reference.jpg'); background-size: cover; background-position: center; }
+.auth-card { position: relative; background: #f9faf0f2; border-color: #f8faed; box-shadow: 0 26px 70px #1c36583b; backdrop-filter: blur(16px); }
+.auth-card h1 { color: #263c56; font-weight: 550; }
+.auth-card p, .auth-card small { color: #52677b; }
+.signin-button { background: #88abda; color: #203955; font-weight: 650; transition: background .2s; }
+.signin-button:hover { background: #9abbe4; }
+.pages-auth label { color: #3f5a78; }
+.pages-auth input { background: #fbfcf6; border-color: #bfcddd; color: #263c56; }
+.pages-auth input::placeholder { color: #63758a; }
+.pages-auth summary, .pages-auth .text-link { color: #3e608b; }
+.pages-auth .form-hint { color: #52677b; }
+.connection-status { background: #e2eaf0; border-color: #c5d5e3; }
+.connection-status > svg, .connection-status span { color: #526c88; }
+.pages-auth .auth-message { background: #f5e7dd; color: #80503e; }
+
+/* Higher specificity also covers project-workspace.css's local color rules. */
+:root .studio-panel, :root .studio-reference { background: #fbfcf6; border-color: #d1dbdc; }
+:root .studio-tabs { background: #e1e8e8; border-color: #cad6dd; }
+:root .studio-tabs button { color: #52677b; }
+:root .studio-tabs button.active { background: #88abda; color: #203955; box-shadow: none; }
+:root .studio-panel h2, :root .studio-reference h4 { color: #2f4e73; }
+:root .studio-panel h3, :root .studio-panel h3 small, :root .studio-hint,
+:root .shooting-heading p:not(.eyebrow), :root .studio-reference p, :root .studio-reference small,
+:root .studio-version summary small, :root .studio-history-message small { color: #596e82; }
+:root .studio-form-grid label, :root .studio-field, :root .studio-shot label,
+:root .studio-consent, :root .studio-proposal, :root .studio-confirm-body,
+:root .studio-version, :root .studio-history-message, :root .studio-ref-choices { color: #435d79; }
+:root .studio-panel input:not([type=checkbox]), :root .studio-panel textarea { background: #f2f4e9; border-color: #c5d3de; color: #263c56; }
+:root .studio-panel input::placeholder, :root .studio-panel textarea::placeholder { color: #63758a; }
+:root .studio-panel-heading > span { background: #e4e8d6; color: #4f6145; }
+:root .studio-badge, :root .studio-notice { background: #dce7f2; border-color: #bfd1e6; color: #355a87; }
+:root .studio-checks { background: #f5efda; border-color: #ded2aa; color: #69582c; }
+:root .studio-ref-placeholder { background: linear-gradient(135deg, #dbe5f3, #eceee1); color: #526c88; }
+:root .studio-reference a { color: #3e608b; }
+:root .studio-shot, :root .studio-version, :root .studio-recommendation { border-color: #ccd8df; }
+:root .studio-shot > span { color: #526c88; }
+:root .studio-proposal details { background: #edf0e5; }
+:root .studio-history-message { border-color: #88abda; }
+@media (max-width: 600px) {
+  .capture-panel { background-position: center, 62% center; }
+  .auth-shell { padding: 24px 16px; }
+  .auth-card { padding: 30px 24px; }
+  .auth-shell::before { background-position: center, 58% center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .inspiration-card, .signin-button { transition: none; }
+  .inspiration-card:hover { transform: none; }
+}

@@ -5,6 +5,7 @@ import { InspirationApp } from '@/app/inspiration-app';
 import { Cloud as CloudClient, validateConfig, type CloudConfig } from './cloud';
 import '@/app/globals.css';
 import './pages.css';
+import '@/app/moonlight-theme.css';
 import defaultConfig from './deployment.json';
 
 const configKey = 'portrait-muse-cloud-config';
