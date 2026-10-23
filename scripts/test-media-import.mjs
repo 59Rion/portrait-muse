@@ -25,7 +25,7 @@ await assert.rejects(() => readNote(`https://www.xiaohongshu.com/explore/${id}`,
 const videoNote = { ...note, type: 'video', video: { media: { video: { drmType: 0 }, stream: { h264: [{ format: 'mp4', size: 32, masterUrl: videoURL, width: 1280 }] } } } };
 assert.deepEqual(parseNote(html(videoNote), id).media.map(x => x.kind), ['video', 'image']);
 let handler;
-globalThis.Deno = { env: { get: k => ({ SUPABASE_URL: 'https://synthetic.supabase.co', SUPABASE_PUBLISHABLE_KEYS: '{"default":"sb_publishable_synthetic"}' })[k] }, serve: h => { handler = h; } };
+globalThis.Deno = { env: { get: k => ({ SUPABASE_URL: 'https://synthetic.supabase.co', SUPABASE_PUBLISHABLE_KEYS: '{"default":"sb_publishable_synthetic"}' })[k] }, createHttpClient: options => { assert.deepEqual(options, { http1: true, http2: false }); return 'synthetic-http1-client'; }, serve: h => { handler = h; } };
 await import(uri(compile(await readFile(new URL('../supabase/functions/media-import/index.ts', import.meta.url), 'utf8')).replace("'../_shared/xhs.ts'", JSON.stringify(moduleURI))));
 const realFetch = globalThis.fetch;
 let savedRows = [], stored = [], patched, foreign = false, unauthorized = false, mode = 'image';
@@ -34,6 +34,7 @@ const uid = '99999999-8888-4777-a666-555555555555';
 globalThis.fetch = async (url, init = {}) => {
   url = String(url);
   if (url.startsWith('https://synthetic.supabase.co')) {
+    assert.equal(init.client, undefined, 'Cloud requests do not use the external-site client');
     const headers = new Headers(init.headers);
     assert.equal(headers.get('Authorization'), 'Bearer synthetic-user-token');
     assert.equal(headers.get('apikey'), 'sb_publishable_synthetic');
@@ -52,6 +53,7 @@ globalThis.fetch = async (url, init = {}) => {
     throw new Error('Unexpected cloud path');
   }
   assert.equal(new Headers(init.headers).has('Authorization'), false, 'Caller JWT must never reach Xiaohongshu or CDN');
+  assert.equal(init.client, 'synthetic-http1-client', 'External requests must use HTTP/1.1 compatibility mode');
   if (url.includes('www.xiaohongshu.com')) return new Response(html(mode === 'video' ? videoNote : note));
   if (url.includes('sns-video-v3.xhscdn.com')) return new Response(mp4);
   if (url.includes('sns-webpic-qc.xhscdn.com')) return new Response(new Uint8Array([255, 216, 255, 1]));

@@ -332,7 +332,7 @@ export function InspirationApp({ user, transport, deployment = 'sites', onSignOu
 
   async function downloadSelected() {
     if (!selected || downloadingImages) return;
-    setDownloadingImages(true); setDetailNotice('正在启动下载后台。免费实例首次启动可能需要约一分钟，请勿重复点击。');
+    setDownloadingImages(true); setMessage(''); setDetailNotice('正在读取原笔记并保存图片或视频，请勿重复点击。');
     try {
       const response = await fetch(`/api/inspirations/${selected.id}/download`, { method: 'POST' });
       const data = await response.json() as { inspiration?: Inspiration; error?: string; message?: string };
@@ -343,6 +343,7 @@ export function InspirationApp({ user, transport, deployment = 'sites', onSignOu
       const galleryResponse = await fetch(`/api/inspirations/${selected.id}/images`);
       if (galleryResponse.ok) setGallery((await galleryResponse.json() as { images: InspirationImage[] }).images);
       setDetailNotice(data.message || '已下载到当前账号的私有图库。');
+      setMessage(data.message || '已下载到当前账号的私有图库。');
     } catch (error) {
       const text = error instanceof Error ? error.message : '暂时下载失败，可稍后重试或补充截图。';
       if (selectedIdRef.current === selected.id) setDetailNotice(text); else setMessage(text);
