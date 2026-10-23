@@ -39,4 +39,24 @@ globalThis.fetch = async () => { calls.push(1); throw new Error('Unexpected requ
 const anonymous = await client.transport('/api/inspirations');
 assert.equal(anonymous.ok, false);
 assert.equal(calls.length, 0, 'Signed-out clients cannot dispatch database requests');
+// A paused project / unavailable DNS must not be reported as a bad password.
+for (const failure of [new TypeError('Failed to fetch'), new DOMException('Timed out', 'TimeoutError')]) {
+  globalThis.fetch = async () => { throw failure; };
+  await assert.rejects(() => client.auth('token?grant_type=password', { email: 'test@example.invalid', password: 'synthetic-only' }), /无法连接登录服务/);
+  assert.equal(client.session, null);
+}
+globalThis.fetch = async () => new Response('<html>Service unavailable</html>', { status: 503 });
+await assert.rejects(() => client.auth('settings'), /登录服务暂时不可用/);
+globalThis.fetch = async () => new Response('invalid JSON', { status: 200 });
+await assert.rejects(() => client.checkAuthConnection(), /登录服务暂时不可用/);
+globalThis.fetch = async () => Response.json({ code: 'invalid_credentials' }, { status: 400 });
+await assert.rejects(() => client.auth('token?grant_type=password', {}), /邮箱或密码不正确/);
+globalThis.fetch = async () => Response.json({ code: 'email_address_not_authorized' }, { status: 403 });
+await assert.rejects(() => client.auth('signup', {}), /邮件服务暂不允许/);
+globalThis.fetch = async (_url, init) => {
+  assert.equal(new Headers(init.headers).get('Authorization'), null, 'Connection probe never forwards a user token');
+  return Response.json({ disable_signup: false, mailer_autoconfirm: false });
+};
+assert.deepEqual(await client.checkAuthConnection(), { signupEnabled: true, emailVerificationRequired: true });
+assert.equal(client.session, null, 'Public connection probe cannot create a session');
 console.log('Pages cloud adapter: configuration, concurrent session refresh, private image URL, access denial and logout checks passed.');

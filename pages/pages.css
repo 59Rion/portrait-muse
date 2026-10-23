@@ -13,3 +13,7 @@
 .pages-auth .text-link { display: block; margin: 15px auto 0; border: 0; background: transparent; color: #627e91; text-align: center; font-size: 12px; text-decoration: none; }
 .pages-auth .form-hint { margin: 0; color: #7d8e98; font-size: 12px; }
 .pages-auth .auth-message { border-radius: 10px; background: #fff0e8; padding: 12px; color: #8b5e4a; font-size: 13px; }
+.auth-connection { display: grid; gap: 7px; margin: 18px 0 0; border: 1px solid #c5d5e3; border-radius: 11px; background: #e6edf0; padding: 10px 12px; color: #435d79; font-size: 12px; line-height: 1.7; text-align: left; }
+.auth-connection-ready { border-color: #cbd8c4; background: #e8eddf; color: #485f3f; }
+.auth-connection-unavailable { border-color: #dec9bc; background: #f5e7dd; color: #80503e; }
+.auth-connection button { justify-self: start; border: 0; border-bottom: 1px solid currentColor; padding: 2px 0; background: transparent; color: inherit; font-size: 12px; }

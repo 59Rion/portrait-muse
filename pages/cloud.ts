@@ -40,14 +40,23 @@ export class Cloud {
     } finally { history.replaceState({}, '', location.pathname + location.search); }
   }
   async auth(path: string, body?: unknown): Promise<Row> {
-    const response = await fetch(`${this.config.url}/auth/v1/${path}`, { method: body ? 'POST' : 'GET', headers: { apikey: this.config.key, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
-    const data = await response.json() as Row;
+    let response: Response;
+    try {
+      response = await fetch(`${this.config.url}/auth/v1/${path}`, { method: body ? 'POST' : 'GET', headers: { apikey: this.config.key, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(12000) });
+    } catch {
+      throw new Error('无法连接登录服务。请检查网络后重试；云端项目暂停或恢复中也会出现此问题。这不代表邮箱或密码错误。');
+    }
+    const data = await response.json().catch(() => null) as Row | null;
+    if (response.status >= 500 || !data) throw new Error('登录服务暂时不可用，请稍后重新检查连接。请勿重复注册或修改密码。');
     if (!response.ok) {
       const messages: Record<string, string> = {
         invalid_credentials: '邮箱或密码不正确，请确认使用的是本站独立账号。',
         email_not_confirmed: '请先在邮箱中完成验证，再返回登录。',
         over_email_send_rate_limit: '验证邮件发送过于频繁，请稍后重试。',
+        over_request_rate_limit: '请求过于频繁，请稍后重试，不要连续提交。',
         email_address_not_authorized: '当前邮件服务暂不允许向此邮箱发送验证信，请联系站点管理员配置邮件服务。',
+        email_address_invalid: '请填写有效的邮箱地址。',
+        signup_disabled: '本站暂时关闭了新账号注册，请联系站点管理员。',
         user_already_exists: '此邮箱已注册，请返回登录。',
         weak_password: '密码强度不足，请使用更长的字母、数字和符号组合。',
       };
@@ -55,6 +64,11 @@ export class Cloud {
     }
     if (data.access_token) this.setSession({ ...data, expires_at: data.expires_at || Math.floor(Date.now() / 1000) + data.expires_in } as Session);
     return data;
+  }
+  async checkAuthConnection() {
+    const data = await this.auth('settings');
+    if (typeof data.disable_signup !== 'boolean' || typeof data.mailer_autoconfirm !== 'boolean') throw new Error('登录服务返回了异常响应，请稍后重试。');
+    return { signupEnabled: !data.disable_signup, emailVerificationRequired: !data.mailer_autoconfirm };
   }
   async ready() {
     if (!this.session) throw new Error('请先登录。');
